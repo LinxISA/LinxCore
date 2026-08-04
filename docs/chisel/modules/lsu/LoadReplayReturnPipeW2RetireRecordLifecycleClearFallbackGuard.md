@@ -128,6 +128,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit 64fa8922fc057114dda438948d2883353d136e49.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover duplicate physical-clear suppression, no-physical-clear

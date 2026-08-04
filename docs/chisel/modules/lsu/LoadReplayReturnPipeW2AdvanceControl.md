@@ -175,6 +175,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandid
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r355-replay-pipe-w2-advance-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit bbb63ed416d0ac9f8bcbf612ca21d70b6d91b238.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover current empty-only pass-through, future promotion

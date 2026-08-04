@@ -165,4 +165,5 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_commit_row_fill_candidate \
   generated/r583-replay-retire-record-commit-row-candidate-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+Provenance: source commit 7d48906fc10cfdfc424c2383c649a32ef9a515cb.
 <!-- task15-historical-specialized-evidence:end -->

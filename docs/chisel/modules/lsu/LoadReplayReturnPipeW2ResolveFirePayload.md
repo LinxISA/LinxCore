@@ -119,6 +119,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectIss
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r347-replay-pipe-w2-resolve-fire-payload-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 496caf55f72c09d39b570e4b67165b87c6d03587.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover legal fire-qualified copying, fire without payload,

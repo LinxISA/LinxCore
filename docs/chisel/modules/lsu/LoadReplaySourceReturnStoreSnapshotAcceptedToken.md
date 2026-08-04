@@ -214,6 +214,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshotResponseMatch
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r408x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit de8e150bcc06a5441fb46d40d2dd75276768740d.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover accepted-token capture, same-cycle bypass plus consume,

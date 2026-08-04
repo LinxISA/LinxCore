@@ -156,6 +156,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r398x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit d4ca17100186e59c2326df7c7cc73c763aea0484.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover disabled/flush suppression, no-query blocking, unmatched

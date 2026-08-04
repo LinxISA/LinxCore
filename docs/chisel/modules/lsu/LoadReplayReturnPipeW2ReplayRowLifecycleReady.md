@@ -202,6 +202,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RowFillEnable
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r368-replay-w2-row-lifecycle-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 32bc8a5be254c0956e0dafe3a23aacf82de57dca.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover unique resolved-row match, live-clear-disabled dormancy,

@@ -91,6 +91,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnWakeupCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r313-replay-return-wakeup-candidate-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 7ea14290f475914fa20c5f21cdd7751b282d0450.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover GPR wakeup candidate formation, suppressed regular

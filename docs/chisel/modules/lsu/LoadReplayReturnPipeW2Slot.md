@@ -262,6 +262,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r354-replay-pipe-w2-slot-replace-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 40a2092f9f10c237866e3d1948009fce9ca52f9d.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover scalar LDA capture, vector AGU capture, occupied-slot

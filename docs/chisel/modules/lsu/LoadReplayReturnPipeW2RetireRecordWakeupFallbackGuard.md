@@ -153,6 +153,7 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_wakeup_fallback_wakeup_valid \
   generated/r589-replay-retire-record-wakeup-fallback-guard-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+Provenance: source commit 6d022525cd261fa08ab2627a8a11147af82ab67b.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover duplicate physical-wakeup suppression, no-physical

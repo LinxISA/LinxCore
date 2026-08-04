@@ -116,6 +116,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPublishControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r381x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 92ab63d0920324fcfbc5c43d0df81c008a96b09d.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover disabled live request, required-mask shaping, LRET-only

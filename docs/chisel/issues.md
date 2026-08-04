@@ -407,7 +407,7 @@ Impact:
 Evidence:
 
 - Command:
-  <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r198-helper-split-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
+  <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r198-helper-split-marker-row-1024-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` Provenance: source commit 801cbabb2475059b784de7587207e3332fee7a24. <!-- task15-historical-specialized-evidence:end -->
 - The run captured 1024 raw QEMU rows, extracted 953 expected rows, emitted the
   Chisel top in roughly 16 seconds, and built the Verilated model before
   failing in the comparator.
@@ -439,7 +439,7 @@ Resolution:
   `restoreBid = flush.bid - 1`, so a block-stop redirect must ask to restore
   the just-finished block checkpoint rather than the checkpoint before it.
 - The passing R202 command:
-  <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r202-marker-stop-restore-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
+  <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r202-marker-stop-restore-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 1024 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 24 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` Provenance: source commit 54e94094445468467128b9e00f638185420cec88. <!-- task15-historical-specialized-evidence:end -->
 - Result: 1024 raw QEMU rows captured, 953 expected rows extracted, 288 marker
   commits admitted/filtered, 665 normalized QEMU/DUT rows compared, and zero
   mismatches.

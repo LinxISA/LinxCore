@@ -141,6 +141,7 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_instruction_metadata_capture_from_w2 \
   generated/r584-replay-retire-record-metadata-probe-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+Provenance: source commit a3624948d19a4e6c7bd52e141017ed30f1d4a03d.
 <!-- task15-historical-specialized-evidence:end -->
 
 R585 payload-source/latch-hold gate:
@@ -168,6 +169,7 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_commit_row_candidate_blocked_by_no_metadata \
   generated/r585-replay-retire-record-payload-source-latch-hold-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+Provenance: source commit 6c060ca96723ab7ee62faa65118228b4666f2791.
 <!-- task15-historical-specialized-evidence:end -->
 
 skill-evolve: no-update (R585 applies the existing prove-before-promote and top-split rules; the payload-source rule is now captured in this module contract).

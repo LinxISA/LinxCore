@@ -115,6 +115,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionCont
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r363-replay-pipe-w2-atomic-live-request-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 28b0ca97dab579a6f0c1a8739b61021ace1d6786.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover disabled default behavior, the shared active request gate,

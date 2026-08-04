@@ -130,6 +130,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ClearCommitGu
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r365-replay-w2-clear-commit-guard-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 25a4351f2873798033a7c5e4c69a51b6f4231198.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover coherent clear/commit evidence, dormant live-clear

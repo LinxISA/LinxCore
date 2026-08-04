@@ -281,7 +281,7 @@ This closes the elaboration-only gap for marker-row admission; it still leaves
 marker-aware QEMU/DUT comparison and the default live-top switch to later
 packets.
 R180 extends the generated-RTL QEMU comparator with an explicit marker-row
-mode. <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --marker-rows`<!-- task15-historical-specialized-evidence:end -->
+mode. <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --marker-rows` Provenance: source commit 742c3c991d1c9a48e92001d58d4704b3ebead754. <!-- task15-historical-specialized-evidence:end -->
 emits the marker-row wrapper, asks the shared driver to admit legal marker
 rows, validates their ROB commits as marker-shaped rows, and filters those
 validated marker commits before scalar QEMU comparison. The first CoreMark
@@ -960,6 +960,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-di
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r173-marker-retire-source-flush-prune-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf
 ```
+Provenance: source commit e4d8f6bae895a562afb4f254660ffe6be8174b9d, source commit 4fdfdc4d431f4d660d0bfab605842c67b073b35d, source commit 34a3f8a684716189bf26c2e36508b5f2e65c0de8, source commit b8b94fa82e4f67d3c322b71fd92ccd11b4b36786, source commit bbc05af27289fb29f17402bc0d82512f08f52a46.
 <!-- task15-historical-specialized-evidence:end -->
 
 Affected gates:

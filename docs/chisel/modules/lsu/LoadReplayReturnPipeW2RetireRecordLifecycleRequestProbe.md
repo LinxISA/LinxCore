@@ -132,6 +132,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit b4bea35e3e347e4ce35c5a89fbac79f01dc56b44.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full live-promotion candidate formation, missing

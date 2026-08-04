@@ -422,6 +422,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit 011bdc01668d93790b73d82db8f9711a7fd1d991.
 <!-- task15-historical-specialized-evidence:end -->
 
 R578 lifecycle-match diagnostic gate:
@@ -440,6 +441,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit a298341c872d88397137bf2688bca976b3aeee79.
 <!-- task15-historical-specialized-evidence:end -->
 
 R579 lifecycle-ready consume diagnostic gate:
@@ -458,6 +460,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit 3db850c702489ed05e08bf13fcf3827a4bce2f38.
 <!-- task15-historical-specialized-evidence:end -->
 
 R581 retained-record lifecycle request probe gate uses the same fixture and

@@ -155,6 +155,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit affb9c6c5875335188201fd7928359a71ea63b2f.
 <!-- task15-historical-specialized-evidence:end -->
 
 Evidence:

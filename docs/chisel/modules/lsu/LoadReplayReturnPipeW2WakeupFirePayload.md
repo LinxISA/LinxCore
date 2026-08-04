@@ -125,6 +125,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectIss
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r349-replay-pipe-w2-wakeup-fire-payload-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 9973deb8604bfa239c6653ea1a3c11d7d9e57228.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover legal GPR and non-GPR fire-qualified copying, fire

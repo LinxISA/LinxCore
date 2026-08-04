@@ -87,6 +87,7 @@ FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 \
 FETCH_ELF=tests/benchmarks/build/coremark_real.elf \
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 916be29f5138cf997ddb0fd6c114fb6e32ff1ba8.
 <!-- task15-historical-specialized-evidence:end -->
 
 That replay compared 3280 normalized rows with zero mismatches and reported

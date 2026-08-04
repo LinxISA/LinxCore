@@ -136,6 +136,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexDataCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r323-replay-rob-resolve-data-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 5e99d0e3c2dbd02f1dc7bf5f19659b4af346f8fa.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover successful reduced scalar resolve request formation,

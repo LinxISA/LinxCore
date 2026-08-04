@@ -156,6 +156,7 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_rf_fallback_writeback_valid \
   generated/r588-replay-retire-record-rf-fallback-guard-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+Provenance: source commit b8281956c94d934a94389012d160430054b982ba.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover duplicate physical-writeback suppression, no-physical

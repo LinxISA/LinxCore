@@ -113,6 +113,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnSideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r315-replay-side-effect-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit b83cedaf397c8b20125f2667aaf91dfe2fc5d851.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover all-side-effect readiness, LRET-only readiness, missing

@@ -120,6 +120,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AdvanceContro
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r356-replay-pipe-w2-promotion-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 96c83fbf2d7ecc4e2229d020a65424ce93b48a1c.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover default disabled behavior, empty-slot promotion,

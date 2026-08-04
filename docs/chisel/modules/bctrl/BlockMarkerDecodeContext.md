@@ -123,7 +123,7 @@ The integration split is:
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycleSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPathSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTopSpec`
-- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r176-marker-decode-context-prep-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r176-marker-decode-context-prep-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf` Provenance: source commit 6d84e2191a19259fa6fef8ffe92884debdc4f02e. <!-- task15-historical-specialized-evidence:end -->
 
 R176 tests cover scalar seeding, boundary replacement of an active BID, stop
 reuse and clear, STID isolation, flush/redirect/ROB block-last cleanup, malformed

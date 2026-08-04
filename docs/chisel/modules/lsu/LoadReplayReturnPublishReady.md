@@ -100,6 +100,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPublishReady
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r309-replay-return-publish-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit a496d8933ea3840d0f5303e685befd6796c47562.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover publish-ready assertion, data-before-consumer blocker

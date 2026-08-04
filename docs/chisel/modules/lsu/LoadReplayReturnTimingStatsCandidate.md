@@ -123,6 +123,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencyCandid
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r327-replay-timing-stats-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 369e1dca6696cc5eed55b25822a87db1c3c2faf7.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover sideband copy intent, `ldRntCycle` stamping, unsigned

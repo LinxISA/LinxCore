@@ -131,6 +131,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CommitRowTrac
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r373x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 401f95d23c9c6c2bd498fcc31bf9d3bad8fe0aee.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover live matched-row metadata, disabled source trace,

@@ -186,6 +186,7 @@ BUILD_DIR=generated/r534-replay-w2-atomic-live-mode-xcheck bash tools/chisel/run
 BUILD_DIR=generated/r535-replay-w2-sideband-counters-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 git diff --check
 ```
+Provenance: source commit 34eac0a1d68d6fd2be28b8ffb7294279d988a353, source commit b24fa65643cd91b4aa967d1b160abd76bbbea8bb, source commit 9bad278a54152932cbc4b2b92d242437d14f2e1b.
 <!-- task15-historical-specialized-evidence:end -->
 
 The R533 generated-RTL manifest is

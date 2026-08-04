@@ -107,6 +107,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnSideEffectReady
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r380x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit ab2032141b62b6f20572cb5b83b120db1bbf204c.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover live writeback readiness, live-disabled arming, RF port

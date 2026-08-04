@@ -129,6 +129,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReq
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r341-replay-pipe-w2-writeback-request-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit c8c03d3b2b81f212deb9d5d5d169769096443056.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover legal GPR payload copying, dormant resident-slot

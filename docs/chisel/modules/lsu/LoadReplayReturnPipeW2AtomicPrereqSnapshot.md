@@ -187,6 +187,7 @@ BUILD_DIR=generated/r533-replay-w2-prereq-snapshot-top-xcheck bash tools/chisel/
 BUILD_DIR=generated/r534-replay-w2-atomic-live-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 git diff --check
 ```
+Provenance: source commit 34eac0a1d68d6fd2be28b8ffb7294279d988a353, source commit b24fa65643cd91b4aa967d1b160abd76bbbea8bb.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover same-identity snapshot reuse, identity mismatch, flush

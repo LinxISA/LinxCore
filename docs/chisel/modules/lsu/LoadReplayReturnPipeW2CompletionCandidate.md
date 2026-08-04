@@ -148,6 +148,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandid
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r334-replay-pipe-w2-completion-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 526a39b3f8d93300aac95e26998ba668457420c2.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover ready scalar LDA completion, side-effect-not-ready hold,

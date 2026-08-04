@@ -113,6 +113,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPublishControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r316-replay-publish-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 49da342e5584519b56ef71819c92f29b7516228a.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full live fire, armed-but-disabled behavior,

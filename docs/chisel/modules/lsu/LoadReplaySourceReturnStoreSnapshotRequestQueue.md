@@ -143,6 +143,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r404x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 3ac7026ab681721abe6aa3e0a1bbb33371856829.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover FIFO order, empty-queue same-cycle bypass, full-queue

@@ -115,6 +115,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r338-replay-pipe-w2-wakeup-sink-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 991cdd220eb2d14ee3a47f30849b98dba2717b36.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover live wakeup readiness, live-disabled arming, abstract

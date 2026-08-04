@@ -157,6 +157,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnReadiness
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r395x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 0161d86dd94c776153a9b89c17a5a4e3073ee48a.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover idle/no-row behavior, selected-row query requirement,

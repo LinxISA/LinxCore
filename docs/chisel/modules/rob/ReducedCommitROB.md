@@ -131,19 +131,21 @@ single-row retire window, and the post-drain idle window. The smoke deliberately
 writes one invalid fixed-width output slot; the adapter must filter it before
 comparison.
 
-The same C++ harness also has an `--input-trace` mode used by
-<!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_trace_replay_xcheck.sh`<!-- task15-historical-specialized-evidence:end -->. In that mode it loads bounded normalized
-commit rows, allocates and completes one row at a time through the top shell,
-writes DUT JSONL from the Chisel commit port, and writes a matching
-QEMU-shaped reference stream for the comparator. This is cross-check
-infrastructure; it does not replace the future live ROB/CMT execution path.
+At the cited source commit, the same C++ harness had an `--input-trace` mode
+used by <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_trace_replay_xcheck.sh` Provenance: source commit ed70d74d700d5c4bcd20dc3ce768b23329d8deea. <!-- task15-historical-specialized-evidence:end -->.
+In that mode it loaded bounded normalized commit rows, allocated and completed
+one row at a time through the top shell,
+wrote DUT JSONL from the Chisel commit port, and wrote a matching QEMU-shaped
+reference stream for the comparator. That was historical cross-check
+infrastructure; it did not replace the live ROB/CMT execution path, and the
+removed wrapper has no current runnable equivalent.
 
 ## Verification
 
 - `bash tools/chisel/run_chisel_tests.sh --only ReducedCommitROB`
 - `bash tools/chisel/run_chisel_rob_bookkeeping.sh --reduced-rob`
 - `bash tools/chisel/run_chisel_reduced_rob_xcheck.sh`
-- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`<!-- task15-historical-specialized-evidence:end -->
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_trace_replay_xcheck.sh` Provenance: source commit ed70d74d700d5c4bcd20dc3ce768b23329d8deea. <!-- task15-historical-specialized-evidence:end -->
 - `bash tools/chisel/run_chisel_scalar_load_completion_rob_probe.sh`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 

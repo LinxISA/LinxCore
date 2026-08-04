@@ -146,6 +146,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CommitRowCand
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r367-replay-w2-row-fill-enable-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit f5f0f744d53344a499f12755d5631ab63f3f92d0.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover the fully armed row-fill case, request-disabled dormancy,

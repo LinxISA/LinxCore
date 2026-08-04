@@ -785,6 +785,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadStoreForwarding
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r410x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit d9aadbe6f8e963d0b353ae1591e91d6a325703be.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover legacy readiness preservation, dormant query/response

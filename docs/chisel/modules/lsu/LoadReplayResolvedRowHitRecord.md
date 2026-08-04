@@ -108,6 +108,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --disable-store-memory-mutation \
   --max-seconds 8
 ```
+Provenance: source commit 4f0addd4bb0789ce1b3e1e096662ce1f5ef435d5.
 <!-- task15-historical-specialized-evidence:end -->
 
 The R495 run compares 3 normalized QEMU/DUT rows with zero mismatches. The

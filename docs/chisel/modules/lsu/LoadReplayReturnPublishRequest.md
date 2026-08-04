@@ -106,6 +106,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPublishRequest
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r317-replay-publish-request-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 3c8269fe064c5e697bc7054a9fca76a9c8ac2a0c.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover all-request fanout, LRET-only fanout, no-fire

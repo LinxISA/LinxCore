@@ -128,6 +128,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandid
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r324-replay-lane-completion-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 5962f94fa0fc57dbb6534f4a8d0e6c2e54e28dd3.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover ordinary scalar pass-through, scalar load-pair

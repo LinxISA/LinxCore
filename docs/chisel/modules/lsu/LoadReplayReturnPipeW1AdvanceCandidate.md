@@ -109,6 +109,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeResidencySlot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r333-replay-pipe-w2-slot-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 6b87caf793172fb0ae491fc8b45a79e8a6d3931e.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover scalar LDA advance, vector AGU live-disabled residency,

@@ -72,6 +72,7 @@ python3 tools/chisel/find_replay_liq_qemu_candidates.py \
   --input generated/<run>/traces/qemu.live.raw.jsonl \
   --output generated/<run>/report/replay_liq_qemu_candidates.json
 ```
+Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3.
 <!-- task15-historical-specialized-evidence:end -->
 
 Useful filters:
@@ -167,6 +168,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   -nographic -monitor none -machine virt -m 1280M \
   -kernel tests/benchmarks/build/coremark_real.elf
 ```
+Provenance: source commit 7e2931bc6550ccf344b6d367e672f978381dca58.
 <!-- task15-historical-specialized-evidence:end -->
 
 The reducer produced 16,250 expected rows. Locator results:
@@ -186,7 +188,7 @@ fixtures for positive replacement evidence.
 ## R613 Evidence
 
 R613 adds `--qemu-skip-rows` and `--qemu-raw-only` to
-<!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`<!-- task15-historical-specialized-evidence:end -->.
+<!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3. <!-- task15-historical-specialized-evidence:end -->.
 
 The non-QEMU-only guard rejects skipped captures:
 
@@ -199,6 +201,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --expected-rows 0 --capture-rows 8 \
   --qemu-skip-rows 1
 ```
+Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3.
 <!-- task15-historical-specialized-evidence:end -->
 
 The wrapper exits with:
@@ -223,6 +226,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   -nographic -monitor none -machine virt -m 1280M \
   -kernel tests/benchmarks/build/coremark_real.elf
 ```
+Provenance: source commit 39902e672a8c1fb75a0eeb02b5280c12a89935b3.
 <!-- task15-historical-specialized-evidence:end -->
 
 Result: 512 raw rows were captured after 4096 skipped rows. The locator found
@@ -249,6 +253,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   -nographic -monitor none -machine virt -m 1280M \
   -kernel tests/benchmarks/build/coremark_real.elf
 ```
+Provenance: source commit 462b359a5bd6620585ea14d7706e70345345bc74.
 <!-- task15-historical-specialized-evidence:end -->
 
 The same command shape was repeated for skip offsets 65,536 and 262,144. Each
@@ -479,6 +484,7 @@ python3 tools/chisel/build_replay_liq_eligible_store_proof_report.py
 python3 tools/chisel/build_replay_liq_eligible_store_proof_report.py \
   --validate-only generated/r623-replay-liq-eligible-store-proof-report/report/replay_liq_eligible_store_proof_report.json
 ```
+Provenance: source commit 7f2e4bccd85a69a2d432a02107f0c5af36c27dcd.
 <!-- task15-historical-specialized-evidence:end -->
 
 The generated-RTL/QEMU run passes with 18 compared rows, zero mismatches, and
@@ -682,6 +688,7 @@ FETCH_DISABLE_STORE_MEMORY_MUTATION=1 \
 FETCH_RF_SEED=generated/r629-coremark-pc-filter-rf-seed/rf_seed.jsonl \
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit dc38d2b8dd6e07338517543d306c2da5aae14feb.
 <!-- task15-historical-specialized-evidence:end -->
 
 The generated-RTL replay passes the neutral comparator:
@@ -711,7 +718,7 @@ python3 tools/chisel/scan_replay_liq_qemu_seeded_windows.py \
 The scanner consumes the R625 candidate report and the R621 unfiltered raw
 trace by default. For each raw dynamic-window hint, it builds an RF seed before
 `qemu_skip_rows`, slices the raw window, runs
-<!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`<!-- task15-historical-specialized-evidence:end --> with
+<!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` Provenance: source commit 1a6f9f893de0ecece52fe3fa54eb29dccd47ab66. <!-- task15-historical-specialized-evidence:end --> with
 `FETCH_REDUCED_STORE_REPLAY_LIQ=1`, `FETCH_DISABLE_STORE_MEMORY_MUTATION=1`,
 and `FETCH_RF_SEED=<seed>`, then records both
 `crosscheck_manifest.json` and `frontend_fetch_rf_alu_sideband_stats.json`.

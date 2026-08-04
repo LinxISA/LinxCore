@@ -89,6 +89,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnWritebackCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r312-replay-return-writeback-candidate-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 80b73c7d314d9f44cb1fe27f6f6bf43acb6a3512.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover GPR writeback candidate formation, missing destination

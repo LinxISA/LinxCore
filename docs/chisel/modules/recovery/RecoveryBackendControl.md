@@ -85,9 +85,11 @@ owner can provide the authoritative full BID for the incremented cleanup BID.
 - `bash tools/chisel/run_chisel_tests.sh --only RecoveryBackendControlSpec`
 - `bash tools/chisel/run_chisel_recovery_cleanup_rob_probe.sh`
 - `bash tools/chisel/run_chisel_scalar_redirect_recovery_source_probe.sh`
-- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`<!-- task15-historical-specialized-evidence:end -->
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` Provenance: source commit 49102fa1f0a34eb9a548dfcb7fa6c9556a1a017f. <!-- task15-historical-specialized-evidence:end -->
 
-The focused test proves composition and handshake-qualified ROB publication.
-The generated real-ROB probe proves exact lookup, blocked-intent stability, and
-resident-row pruning. The full fetch/RF/ALU cross-check protects commit
-behavior through the integrated backend boundary.
+The active focused test proves composition and handshake-qualified ROB
+publication. The active generated real-ROB probe proves exact lookup,
+blocked-intent stability, and resident-row pruning. At the cited source commit,
+the now-removed full fetch/RF/ALU cross-check historically protected commit
+behavior through the integrated backend boundary; it has no current runnable
+equivalent.

@@ -129,6 +129,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectRea
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r339-replay-pipe-w2-side-effect-request-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 13fdea577829129ca7632e998dbd8f008a9acc8b.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover all-side-effect requests, resolve-only requests,

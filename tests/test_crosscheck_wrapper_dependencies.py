@@ -58,21 +58,45 @@ class CrosscheckWrapperDependenciesTest(unittest.TestCase):
             stale.extend(errors)
         self.assertEqual(stale, [], "active docs misuse historical evidence:\n" + "\n".join(stale))
 
-    def test_historical_evidence_blocks_are_closed_and_honest(self) -> None:
-        fixture = ROOT / "docs/chisel/fixture.md"
+    def test_exact_commit_and_artifact_provenance_are_accepted(self) -> None:
+        commit_fixture = ROOT / "docs/chisel/issues.md"
+        artifact_fixture = ROOT / "docs/chisel/fixture.md"
         deleted = DELETED[4]
-        valid = (
+        valid_commit = (
             "<!-- task15-historical-specialized-evidence:start -->\n"
             "Historical evidence only; no current runnable equivalent.\n"
+            "source commit 801cbabb2475059b784de7587207e3332fee7a24\n"
             f"`bash tools/chisel/{deleted} --elf old.elf`\n"
             "<!-- task15-historical-specialized-evidence:end -->\n")
-        self.assertEqual(documentation_reference_errors(fixture, valid), ([], 1))
+        valid_artifact = (
+            "<!-- task15-historical-specialized-evidence:start -->\n"
+            "Historical evidence only; no current runnable equivalent.\n"
+            "retained artifact docs/chisel/generated/top-interface-manifest.json\n"
+            "<!-- task15-historical-specialized-evidence:end -->\n")
+        self.assertEqual(
+            documentation_reference_errors(commit_fixture, valid_commit), ([], 1))
+        self.assertEqual(
+            documentation_reference_errors(artifact_fixture, valid_artifact), ([], 1))
+
+    def test_historical_evidence_blocks_require_exact_provenance(self) -> None:
+        commit_fixture = ROOT / "docs/chisel/issues.md"
+        deleted = DELETED[4]
+        valid_commit = (
+            "<!-- task15-historical-specialized-evidence:start -->\n"
+            "Historical evidence only; no current runnable equivalent.\n"
+            "source commit 801cbabb2475059b784de7587207e3332fee7a24\n"
+            f"`bash tools/chisel/{deleted} --elf old.elf`\n"
+            "<!-- task15-historical-specialized-evidence:end -->\n")
         for source in (
                 f"`bash tools/chisel/{deleted}`",
-                valid.replace("no current runnable equivalent", "archived"),
-                valid.replace("<!-- task15-historical-specialized-evidence:end -->", "")):
+                valid_commit.replace("no current runnable equivalent", "archived"),
+                valid_commit.replace("source commit 801cbabb2475059b784de7587207e3332fee7a24\n", ""),
+                valid_commit.replace(
+                    "801cbabb2475059b784de7587207e3332fee7a24",
+                    "d72aed8f1f52b0edfb3b27c734302c95138cf26a"),
+                valid_commit.replace("<!-- task15-historical-specialized-evidence:end -->", "")):
             with self.subTest(source=source):
-                errors, _ = documentation_reference_errors(fixture, source)
+                errors, _ = documentation_reference_errors(commit_fixture, source)
                 self.assertNotEqual(errors, [])
 
     def test_active_docs_use_only_the_supported_canonical_cli(self) -> None:

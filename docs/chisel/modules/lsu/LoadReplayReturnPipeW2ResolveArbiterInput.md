@@ -108,6 +108,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveFirePa
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r359-replay-pipe-w2-resolve-arbiter-input-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit c4ac20fa43fa81183e6d3a5ab9e3fb0cd1d26e6a.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover live-disabled candidate hold, live-enabled payload copy,

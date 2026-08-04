@@ -138,6 +138,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit 83fae006e03ce7c5fd33fb52806e5c439744143b.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full eligibility, missing return side-effect evidence,

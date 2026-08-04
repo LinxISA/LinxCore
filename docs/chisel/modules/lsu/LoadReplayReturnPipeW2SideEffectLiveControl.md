@@ -121,6 +121,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectRea
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r357-replay-pipe-w2-side-effect-live-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit bb6aa74587a3acd4a528ea513ce114a859be4259.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover live-disabled default behavior, required-sink mask

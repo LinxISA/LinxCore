@@ -149,6 +149,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit 835b5465163b2ef8a246f8ea8d88e2c2870338d2.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full model-order duplicate bundles, partial vectors,

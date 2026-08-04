@@ -90,6 +90,7 @@ FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 \
 FETCH_ELF=tests/benchmarks/build/coremark_real.elf \
 bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit e1b0611e3772ea326a530aca3e58333bb178dfba.
 <!-- task15-historical-specialized-evidence:end -->
 
 The R157 replay compared 3280 normalized QEMU/DUT rows with zero mismatches and

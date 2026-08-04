@@ -58,10 +58,11 @@ transport does not derive memory-order width from ring identity.
 - `bash tools/chisel/run_chisel_tests.sh --only ScalarRedirectRecoverySourceSpec`
 - `bash tools/chisel/run_chisel_scalar_redirect_recovery_source_probe.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTopSpec`
-- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`<!-- task15-historical-specialized-evidence:end -->
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` Provenance: source commit 49102fa1f0a34eb9a548dfcb7fa6c9556a1a017f. <!-- task15-historical-specialized-evidence:end -->
 
-The generated-RTL probe proves cycle-level publish-once retention,
+The active generated-RTL probe proves cycle-level publish-once retention,
 missing-identity and invalid-RID blocking, backpressure, consume-and-replace,
 cancellation priority, same-cycle publication suppression, and sidecar
-retention. The integrated tests and cross-check prove unchanged architectural
-commit behavior.
+retention. The active integrated tests prove unchanged architectural commit
+behavior. At the cited source commit, the removed cross-check historically
+provided additional commit evidence; it has no current runnable equivalent.

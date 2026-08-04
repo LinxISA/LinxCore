@@ -148,6 +148,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplaySourceReturnStoreSnapshot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r402x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 5a3454d3a20efd15aa4c2d856fdfc966536df531.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover accepted selected-row payload publication, no-issue

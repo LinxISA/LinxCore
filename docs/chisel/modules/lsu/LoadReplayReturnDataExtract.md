@@ -147,6 +147,7 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r306-replay-return-data-extract-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r308-replay-return-data-diagnostic-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 5bcb5db729304392661417ace8c9aea74cb89408, source commit 00697f670488cf259c7cda71c3bd0309749e5983.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover little-endian byte extraction, byte/halfword/word

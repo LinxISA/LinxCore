@@ -140,6 +140,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectFir
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r343-replay-pipe-w2-side-effect-payload-plan-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit d0136678e41af6b3bf62a3ff95b5e7154e4d605f.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full side-effect masks, resolve-only masks, dormant

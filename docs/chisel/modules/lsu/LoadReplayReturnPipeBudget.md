@@ -103,6 +103,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnConsumerReady
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r305-replay-liq-return-consumer-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 50f1228e88ac2e43d1ac43600a28d71178525dd5.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover budget availability, disabled wrapper gating,

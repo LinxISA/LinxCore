@@ -136,6 +136,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnTimingStatsCandidat
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r328-replay-pipe-residency-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit cf23d5ca549e71abb143cbe8d3991f45fe677464.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover scalar LDA target diagnostics, vector AGU target

@@ -174,6 +174,7 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-nonzero replay_liq.w2_retire_record_commit_row_complete_candidate \
   generated/r587-replay-retire-record-rob-fallback-guard-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+Provenance: source commit a780b5e5271c5a408c8811081d40011e59742795.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover duplicate physical-complete suppression, fallback emission

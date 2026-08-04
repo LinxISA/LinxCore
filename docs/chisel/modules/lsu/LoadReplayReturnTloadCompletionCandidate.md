@@ -131,6 +131,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnIexPipeInsertCandid
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r325-replay-tload-completion-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit bb172ee9388c827604cb3c49904dd2d55ef0950c.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover ordinary scalar pass-through, non-final and final TLOAD

@@ -154,6 +154,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit a06cbf77f1f0244131dbf51493055d9e37578636.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover ready, physical-duplicate block, probe-active block,

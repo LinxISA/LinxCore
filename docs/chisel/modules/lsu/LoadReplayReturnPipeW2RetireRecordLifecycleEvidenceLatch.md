@@ -138,4 +138,5 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_lifecycle_evidence_capture_blocked_by_no_lifecycle \
   generated/r586-replay-retire-record-lifecycle-evidence-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+Provenance: source commit 4abf86b498e60b5e1ad1a17350649b4d0c0eeace.
 <!-- task15-historical-specialized-evidence:end -->

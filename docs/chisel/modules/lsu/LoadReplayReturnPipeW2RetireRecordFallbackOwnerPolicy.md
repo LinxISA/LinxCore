@@ -358,6 +358,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit d4773e5115797fafba9d28afd20d3e27b860090e, source commit 45a5ae3f71e5fc0b88588520726ff94cf39124a4, source commit 21d95f1c2a26998cf801efcce28dd453f0bcc588.
 <!-- task15-historical-specialized-evidence:end -->
 
 The reference tests cover unique retained ownership, physical duplicate

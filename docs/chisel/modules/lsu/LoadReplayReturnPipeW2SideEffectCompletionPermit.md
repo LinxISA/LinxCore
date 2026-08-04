@@ -129,6 +129,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupSinkRea
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r345-replay-pipe-w2-side-effect-completion-permit-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit e4efacf6f58d7ae46cfb83db18e0585ecc12552d.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full side-effect permit, resolve-only permit, missing

@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -39,6 +40,25 @@ HISTORICAL_DOC_ARCHIVES = {
 HISTORICAL_START = "<!-- task15-historical-specialized-evidence:start -->"
 HISTORICAL_END = "<!-- task15-historical-specialized-evidence:end -->"
 HISTORICAL_DECLARATION = "no current runnable equivalent"
+SOURCE_COMMIT = re.compile(r"\bsource commit ([0-9a-f]{40})\b")
+RETAINED_ARTIFACT = re.compile(r"\bretained artifact ([A-Za-z0-9_./-]+)\b")
+PROVENANCE_SOURCE_REVISION = "0f0f4665031a8655e81e467f8937b3acedbc9717"
+
+
+@lru_cache(maxsize=None)
+def blamed_deleted_wrappers(commit: str, path: Path) -> set[str] | None:
+    result = subprocess.run(
+        ["git", "blame", "-l", PROVENANCE_SOURCE_REVISION, "--",
+         str(path.relative_to(ROOT))], cwd=ROOT,
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    if result.returncode != 0:
+        return None
+    attributed = set()
+    for line in result.stdout.splitlines():
+        match = re.match(r"\^?([0-9a-f]{40})\s", line)
+        if match is not None and match.group(1) == commit:
+            attributed.update(name for name in DELETED_WRAPPERS if name in line)
+    return attributed
 
 
 def documentation_reference_errors(path: Path, source: str) -> tuple[list[str], int]:
@@ -46,14 +66,17 @@ def documentation_reference_errors(path: Path, source: str) -> tuple[list[str], 
     errors: list[str] = []
     in_historical = False
     declaration_seen = False
+    historical_source: list[str] = []
     block_count = 0
     marker = re.compile(
         f"({re.escape(HISTORICAL_START)}|{re.escape(HISTORICAL_END)})")
 
     def inspect_segment(segment: str, line_number: int) -> None:
         nonlocal declaration_seen
-        if in_historical and HISTORICAL_DECLARATION in segment:
-            declaration_seen = True
+        if in_historical:
+            historical_source.append(segment)
+            if HISTORICAL_DECLARATION in segment:
+                declaration_seen = True
         if not in_historical:
             for name in DELETED_WRAPPERS:
                 if name in segment:
@@ -70,6 +93,7 @@ def documentation_reference_errors(path: Path, source: str) -> tuple[list[str], 
                         f"{path.relative_to(ROOT)}:{line_number}:nested historical block")
                 in_historical = True
                 declaration_seen = False
+                historical_source.clear()
                 block_count += 1
             else:
                 if not in_historical:
@@ -78,6 +102,37 @@ def documentation_reference_errors(path: Path, source: str) -> tuple[list[str], 
                 elif not declaration_seen:
                     errors.append(
                         f"{path.relative_to(ROOT)}:{line_number}:missing no-equivalent declaration")
+                else:
+                    block_source = "\n".join(historical_source)
+                    commits = SOURCE_COMMIT.findall(block_source)
+                    artifacts = RETAINED_ARTIFACT.findall(block_source)
+                    if not commits and not artifacts:
+                        errors.append(
+                            f"{path.relative_to(ROOT)}:{line_number}:missing exact provenance")
+                    deleted_in_block = {
+                        name for name in DELETED_WRAPPERS if name in block_source}
+                    committed_wrappers = set()
+                    for commit in commits:
+                        attributed = blamed_deleted_wrappers(commit, path)
+                        if attributed is None:
+                            errors.append(
+                                f"{path.relative_to(ROOT)}:{line_number}:invalid source commit {commit}")
+                        else:
+                            committed_wrappers.update(attributed)
+                    for artifact in artifacts:
+                        artifact_path = (ROOT / artifact).resolve()
+                        try:
+                            artifact_path.relative_to(ROOT)
+                        except ValueError:
+                            errors.append(
+                                f"{path.relative_to(ROOT)}:{line_number}:invalid retained artifact {artifact}")
+                        else:
+                            if not artifact_path.is_file():
+                                errors.append(
+                                    f"{path.relative_to(ROOT)}:{line_number}:missing retained artifact {artifact}")
+                    if commits and not deleted_in_block.issubset(committed_wrappers):
+                        errors.append(
+                            f"{path.relative_to(ROOT)}:{line_number}:source commit lacks deleted command")
                 in_historical = False
             offset = match.end()
         inspect_segment(line[offset:], line_number)

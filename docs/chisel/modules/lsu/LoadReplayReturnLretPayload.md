@@ -157,6 +157,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnLretPayload
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r311-replay-destination-sideband-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 25d98c36ac758f093c47ed91eb07ba77b2a21016.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover selected-row identity/data forwarding, speculative and

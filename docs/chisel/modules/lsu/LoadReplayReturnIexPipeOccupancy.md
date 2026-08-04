@@ -108,6 +108,7 @@ bash tools/chisel/run_chisel_tests.sh --only ScalarLSULoadReturnQueue
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r383x bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 7627ea56dce492d2c53d7f4ef56ef40ac57db82c.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover forced-full default behavior, live mask pass-through,

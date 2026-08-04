@@ -111,6 +111,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r352-replay-pipe-w2-refill-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit f920390b0e409f6efcb32a5fbb36118638585b1c.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover empty W2 readiness, occupied W2 blocking, dormant

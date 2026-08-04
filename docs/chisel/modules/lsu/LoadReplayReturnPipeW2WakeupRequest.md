@@ -136,6 +136,7 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupSinkRea
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r342-replay-pipe-w2-wakeup-request-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+Provenance: source commit 0ac01b2824f2805b7e285dc121ad5e9abac764bc.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover legal GPR payload copying, scalar local-link payload

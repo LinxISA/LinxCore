@@ -132,6 +132,7 @@ bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
   --reduced-store-replay-liq --disable-store-memory-mutation \
   --allow-residual-replay-liq-wait
 ```
+Provenance: source commit 2956dab211280da472d99e7bbe171e74a565f99c.
 <!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full-bundle transfer planning, already-ready default
