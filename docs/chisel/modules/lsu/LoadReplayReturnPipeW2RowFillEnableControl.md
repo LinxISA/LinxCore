@@ -137,12 +137,16 @@ owner is the lifecycle row match that feeds pre-request policy evidence.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RowFillEnableControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CommitRowCandidate
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r367-replay-w2-row-fill-enable-control-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r367-replay-w2-row-fill-enable-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover the fully armed row-fill case, request-disabled dormancy,
 ordered missing-prerequisite blockers, disabled/flush/no-candidate blockers, and

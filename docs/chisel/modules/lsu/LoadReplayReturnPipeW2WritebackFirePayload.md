@@ -114,14 +114,18 @@ or replay-row lifecycle.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackFirePayload
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectFireVector
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectIssuePermit
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r348-replay-pipe-w2-writeback-fire-payload-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r348-replay-pipe-w2-writeback-fire-payload-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover legal fire-qualified copying, fire without payload,
 payload without fire, disabled/flush suppression, invalid target and identity,

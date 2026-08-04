@@ -105,13 +105,17 @@ remain disabled.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectLiveControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r363-replay-pipe-w2-atomic-live-request-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r363-replay-pipe-w2-atomic-live-request-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover disabled default behavior, the shared active request gate,
 disabled/flush blockers, no-evidence diagnostics, and Chisel elaboration.

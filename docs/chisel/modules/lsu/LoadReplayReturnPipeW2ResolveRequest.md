@@ -110,12 +110,16 @@ ROB/PE resolve mutation boundary fire-qualified and still observational.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveRequest
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectRequest
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r340-replay-pipe-w2-resolve-request-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r340-replay-pipe-w2-resolve-request-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover legal payload copying, dormant resident-slot behavior,
 request-without-slot diagnostics, invalid target diagnostics, invalid identity

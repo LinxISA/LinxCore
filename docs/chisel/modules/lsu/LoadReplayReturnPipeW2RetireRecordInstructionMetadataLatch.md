@@ -118,10 +118,21 @@ metadata and payload-source blockers are no longer active in this fixture.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RetireRecordInstructionMetadataLatch
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r584-replay-retire-record-metadata-probe-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
 python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --expect-reduced-store-replay-liq \
   --require-nonzero replay_liq.w2_retire_record_commit_row_candidate_valid \
@@ -130,11 +141,23 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_instruction_metadata_capture_from_w2 \
   generated/r584-replay-retire-record-metadata-probe-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 R585 payload-source/latch-hold gate:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r585-replay-retire-record-payload-source-latch-hold-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
 python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --expect-reduced-store-replay-liq \
   --require-nonzero replay_liq.w2_retire_record_commit_row_candidate_valid \
@@ -145,5 +168,6 @@ python3 tools/chisel/validate_frontend_fetch_rf_alu_sideband_stats.py \
   --require-zero replay_liq.w2_retire_record_commit_row_candidate_blocked_by_no_metadata \
   generated/r585-replay-retire-record-payload-source-latch-hold-xcheck/report/frontend_fetch_rf_alu_sideband_stats.json
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 skill-evolve: no-update (R585 applies the existing prove-before-promote and top-split rules; the payload-source rule is now captured in this module contract).

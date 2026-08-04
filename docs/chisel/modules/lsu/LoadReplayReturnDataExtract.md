@@ -138,12 +138,16 @@ mem-wakeup is visible until both halves are complete.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnDataExtract
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r306-replay-return-data-extract-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
-BUILD_DIR=generated/r308-replay-return-data-diagnostic-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r306-replay-return-data-extract-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r308-replay-return-data-diagnostic-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover little-endian byte extraction, byte/halfword/word
 sign-extension, unsigned zero-extension, incomplete byte masks, complete and

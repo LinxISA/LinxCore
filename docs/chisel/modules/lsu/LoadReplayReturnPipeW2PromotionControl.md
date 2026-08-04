@@ -107,6 +107,9 @@ write the replay RF path, mutate ready-table state, or wake the issue queue.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AtomicLiveRequestControl
@@ -115,8 +118,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RefillReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SlotReplacePlan
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2AdvanceControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r356-replay-pipe-w2-promotion-control-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r356-replay-pipe-w2-promotion-control-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover default disabled behavior, empty-slot promotion,
 same-cycle clear/refill promotion, disabled/flush/missing-clear blockers,

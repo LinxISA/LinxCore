@@ -321,13 +321,44 @@ suppression intent counters at five, and zero incomplete-bundle blockers.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RetireRecordFallbackOwnerPolicy
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_NO_PHYSICAL_PROBE=1 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r592-replay-retained-owner-no-physical-probe-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_FALLBACK_EMIT_PROBE=1 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r593-replay-retained-owner-fallback-emit-probe-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_FALLBACK_LIVE_PROBE=1 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r594-replay-retained-owner-fallback-live-probe-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 The reference tests cover unique retained ownership, physical duplicate
 blocking, missing-candidate blocking, the global fallback arm, and Chisel

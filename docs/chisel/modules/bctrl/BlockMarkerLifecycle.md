@@ -190,9 +190,9 @@ still instantiates one lane.
 - `bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop`
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerLifecycleSpec`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPathSpec`
-- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
-- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
-- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r168-block-marker-lifecycle-smoke --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 30 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r192-marker-row-brob-retire-drain-128-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 128 --allow-block-markers --allow-block-loop-reentry --marker-rows --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
 
 The R172 focused test adds retired-boundary and malformed-boundary reference
 cases. The live CoreMark gate captured 6000 QEMU rows, normalized 5138 QEMU/DUT

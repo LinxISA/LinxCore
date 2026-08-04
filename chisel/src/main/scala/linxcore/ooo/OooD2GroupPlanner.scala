@@ -37,7 +37,8 @@ class OooD2GroupPlanner(val p: OooParams = OooParams()) extends Module {
   stateClosed(0) := false.B
 
   val assignedGroup = Wire(Vec(p.decodedUopWidth, UInt(p.robGroupIndexWidth.W)))
-  val assignedMemberBase = Wire(Vec(p.decodedUopWidth, UInt(p.robMemberIndexWidth.W)))
+  val assignedMemberBase = Wire(Vec(p.decodedUopWidth,
+    UInt(p.robPhysicalMemberIndexWidth.W)))
   val releasePcBase = Wire(Vec(p.decodedUopWidth, Bool()))
 
   for (uopIndex <- 0 until p.decodedUopWidth) {
@@ -61,7 +62,8 @@ class OooD2GroupPlanner(val p: OooParams = OooParams()) extends Module {
     assignedGroup(uopIndex) :=
       (stateGroup(uopIndex) + newGroup.asUInt)(p.robGroupIndexWidth - 1, 0)
     assignedMemberBase(uopIndex) :=
-      Mux(newGroup, 0.U, stateMembers(uopIndex))(p.robMemberIndexWidth - 1, 0)
+      Mux(newGroup, 0.U, stateMembers(uopIndex))(
+        p.robPhysicalMemberIndexWidth - 1, 0)
 
     releasePcBase(uopIndex) := uop.identity.parents.zipWithIndex.map {
       case (parent, parentIndex) =>

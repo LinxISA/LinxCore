@@ -12,6 +12,10 @@ REPORT_DIR="${BUILD_DIR}/report"
 DUT_TRACE="${TRACE_DIR}/dut.chisel.jsonl"
 QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
 
+if [[ $# -gt 1 ]]; then
+  echo "error: unsupported argument: $2" >&2
+  exit 2
+fi
 if [[ "${1:-}" == "--check-dependencies" ]]; then
   exec python3 "${ROOT_DIR}/tools/chisel/check_crosscheck_wrapper_dependencies.py"
 fi
@@ -38,7 +42,7 @@ if [[ "${1:-}" == "--dry-run" ]]; then
   echo "crosscheck=${CROSSCHECK} --qemu-trace ${QEMU_TRACE} --dut-trace ${DUT_TRACE} --report-dir ${REPORT_DIR} --max-commits 3 --mode failfast"
   exit 0
 fi
-if [[ $# -ne 0 ]]; then
+if [[ $# -eq 1 ]]; then
   echo "error: unsupported argument: $1" >&2
   exit 2
 fi

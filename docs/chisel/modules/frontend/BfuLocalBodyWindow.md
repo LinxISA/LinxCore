@@ -75,9 +75,19 @@ bash tools/chisel/run_chisel_tests.sh --only BfuLocalBodyWindow
 The R153 top-level replay also passed after integrating this module with the
 resolved body-end fallback:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
-BUILD_DIR=generated/r153-local-body-window-4000-rtl-replay-v6 bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+BUILD_DIR=generated/r153-local-body-window-4000-rtl-replay-v6 \
+FETCH_QEMU_TRACE=generated/r153-next-frontier-4000-qemu-probe/traces/qemu.live.raw.jsonl \
+FETCH_QEMU_MAX_ROWS=0 \
+FETCH_QEMU_ALLOW_BLOCK_MARKERS=1 \
+FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1 \
+FETCH_ELF=tests/benchmarks/build/coremark_real.elf \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 That replay compared 3280 normalized rows with zero mismatches and reported
 483 BFU static/external geometry matches.

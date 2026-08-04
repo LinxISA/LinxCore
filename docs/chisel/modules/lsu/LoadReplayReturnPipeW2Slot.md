@@ -250,6 +250,9 @@ phasing experiment or model-derived side-effect retire boundary, not
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
@@ -257,8 +260,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionCont
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r354-replay-pipe-w2-slot-replace-mode-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r354-replay-pipe-w2-slot-replace-mode-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover scalar LDA capture, vector AGU capture, occupied-slot
 blocking, flush and clear priority, disabled/no-write/invalid-target blockers,

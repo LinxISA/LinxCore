@@ -109,8 +109,8 @@ does not discard older already-retained marker evidence.
 
 - `bash tools/chisel/run_chisel_tests.sh --only BlockMarkerRetireSourceSerializer`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
-- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
-- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r172-retired-marker-lifecycle-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
+- <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh --build-dir generated/r173-marker-retire-source-flush-prune-6000-qemu-elf-xcheck --elf tests/benchmarks/build/coremark_real.elf --expected-rows 0 --capture-rows 6000 --allow-block-markers --allow-block-loop-reentry --max-seconds 16 -- -nographic -monitor none -machine virt -m 1280M -kernel tests/benchmarks/build/coremark_real.elf`<!-- task15-historical-specialized-evidence:end -->
 
 Focused tests cover slot-order compaction, full-window admission backpressure,
 flush suffix pruning, base-on-BID inclusive pruning, clear/drop behavior, and

@@ -99,6 +99,9 @@ ROB/RF/ready-table state.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2RefillReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ClearIntent
@@ -106,8 +109,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionCont
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW1AdvanceCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r352-replay-pipe-w2-refill-ready-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r352-replay-pipe-w2-refill-ready-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover empty W2 readiness, occupied W2 blocking, dormant
 same-cycle refill eligibility, future live clear refill readiness, invalid

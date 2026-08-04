@@ -111,14 +111,18 @@ owner is W2 atomic request/evidence production, not row-status lookup.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only ROBRowStatusLookup
 bash tools/chisel/run_chisel_tests.sh --only ROBEntryBank
 bash tools/chisel/run_chisel_tests.sh --only DispatchROBAllocator
 bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r321-replay-rob-row-status-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r321-replay-rob-row-status-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover matching non-free rows, `NeedFlush` rows, invalid RID
 blocking, free-slot blocking, stale RID blocking, and Chisel elaboration.

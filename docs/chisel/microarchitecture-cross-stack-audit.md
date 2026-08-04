@@ -55,7 +55,7 @@ The 2026-07-30 re-audit ran the three focused top-entry suites after a clean
 | `LinxCoreTopSpec` | 3/3 pass | The reduced commit-ROB plus canonical ScalarLSU shell elaborates. |
 | `LinxCoreBenchmarkAutonomousTopSpec` | 15/15 pass | The workload top elaborates after the replay-LIQ bridge carries the canonical LIQ row lease and exact attempt into LRET, then preserves the data-or-fault result in the retained entry. |
 | `LinxCoreFrontendFetchRfAluTraceTopSpec` | 44/44 pass | The full legacy live-top composition consumes the expanded LRET bundle without uninitialized fields. |
-| `run_chisel_frontend_trace_top_xcheck.sh` | pass; 3 rows, 0 mismatches | Current-head emitted RTL compiles under Verilator and matches the bounded reference stream. |
+| <!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`<!-- task15-historical-specialized-evidence:end --> | pass; 3 rows, 0 mismatches | Current-head emitted RTL compiles under Verilator and matches the bounded reference stream. |
 
 The immediate LRET elaboration regression is closed. The repair is deliberately
 limited to migration safety: it preserves exact canonical identity through the

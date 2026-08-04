@@ -4,7 +4,10 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from tools.chisel.check_crosscheck_wrapper_dependencies import canonical_invocation_errors
+from tools.chisel.check_crosscheck_wrapper_dependencies import (
+    canonical_invocation_errors,
+    documentation_reference_errors,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +34,8 @@ class CrosscheckWrapperDependenciesTest(unittest.TestCase):
         self.assertIn("canonical-dry-run=pass", proc.stdout)
         self.assertIn("active-docs-checked=", proc.stdout)
         self.assertIn("historical-doc-archives-excluded=4", proc.stdout)
+        self.assertRegex(proc.stdout, r"historical-specialized-docs=[1-9][0-9]*")
+        self.assertRegex(proc.stdout, r"historical-specialized-blocks=[1-9][0-9]*")
 
     def test_displaced_entrypoints_are_deleted(self) -> None:
         for name in DELETED:
@@ -49,10 +54,26 @@ class CrosscheckWrapperDependenciesTest(unittest.TestCase):
             if path in historical_archives:
                 continue
             source = path.read_text(encoding="utf-8")
-            for name in DELETED:
-                if name in source:
-                    stale.append(f"{path.relative_to(ROOT)}:{name}")
-        self.assertEqual(stale, [], "active docs name deleted wrappers:\n" + "\n".join(stale))
+            errors, _ = documentation_reference_errors(path, source)
+            stale.extend(errors)
+        self.assertEqual(stale, [], "active docs misuse historical evidence:\n" + "\n".join(stale))
+
+    def test_historical_evidence_blocks_are_closed_and_honest(self) -> None:
+        fixture = ROOT / "docs/chisel/fixture.md"
+        deleted = DELETED[4]
+        valid = (
+            "<!-- task15-historical-specialized-evidence:start -->\n"
+            "Historical evidence only; no current runnable equivalent.\n"
+            f"`bash tools/chisel/{deleted} --elf old.elf`\n"
+            "<!-- task15-historical-specialized-evidence:end -->\n")
+        self.assertEqual(documentation_reference_errors(fixture, valid), ([], 1))
+        for source in (
+                f"`bash tools/chisel/{deleted}`",
+                valid.replace("no current runnable equivalent", "archived"),
+                valid.replace("<!-- task15-historical-specialized-evidence:end -->", "")):
+            with self.subTest(source=source):
+                errors, _ = documentation_reference_errors(fixture, source)
+                self.assertNotEqual(errors, [])
 
     def test_active_docs_use_only_the_supported_canonical_cli(self) -> None:
         fixture = ROOT / "docs/chisel/fixture.md"
@@ -68,10 +89,25 @@ class CrosscheckWrapperDependenciesTest(unittest.TestCase):
         for command in (
                 f"bash {canonical} --elf stale.elf",
                 f"bash {canonical} --dry-run --elf stale.elf",
+                f"bash {canonical} stale.elf",
+                f"bash {canonical} --dry-run stale.elf",
+                f"bash {canonical} FOO=1",
                 f"FETCH_REPLAY_LIQ=1 bash {canonical}",
                 "FETCH_REPLAY_LIQ=1 \\\n" f"bash {canonical}"):
             with self.subTest(command=command):
                 self.assertNotEqual(canonical_invocation_errors(fixture, command), [])
+
+    def test_special_modes_reject_trailing_tokens_before_execution(self) -> None:
+        for arguments in (
+                ("--dry-run", "stale.elf"),
+                ("--check-dependencies", "FOO=1")):
+            with self.subTest(arguments=arguments):
+                proc = subprocess.run(
+                    ["bash", str(CANONICAL), *arguments], cwd=ROOT, text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+                self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+                self.assertIn("unsupported argument", proc.stderr)
+                self.assertNotIn("=pass", proc.stdout)
 
     def test_canonical_dry_run_validates_the_non_rtl_command_closure(self) -> None:
         proc = subprocess.run(

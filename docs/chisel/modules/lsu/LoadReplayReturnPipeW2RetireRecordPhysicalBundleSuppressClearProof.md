@@ -117,9 +117,23 @@ bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
 
 Generated-RTL/QEMU R605 gate:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+LINXCORE_REPLAY_LIQ_EARLY_STA_ADDRESS=1 \
+LINXCORE_REPLAY_LIQ_W2_COMPLETION_DELAY_CYCLES=12 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_PROBE=1 \
+LINXCORE_REPLAY_LIQ_RETAINED_OWNER_PHYSICAL_SUPPRESS_LIVE_MASK=1 \
+FETCH_REPLAY_LIQ_REQUIRE_NONZERO=wait_replay_capture_accepted,replay_queue_out_fire,liq_alloc_accepted,lret_w2_slot_accepted,w2_promotion_live,w2_retire_record_physical_bundle_suppress_live_mask_enabled_candidate,w2_retire_record_physical_bundle_suppress_clear_proof_candidate,w2_retire_record_physical_bundle_suppress_clear_proof_full_mask,w2_retire_record_physical_bundle_suppress_clear_proof_fire_complete_aligned,w2_retire_record_physical_bundle_suppress_clear_proof_clear_intent_aligned,w2_retire_record_physical_bundle_suppress_clear_proof_live_clear_aligned,w2_retire_record_physical_bundle_suppress_clear_proof_row_fill_aligned,w2_retire_record_physical_bundle_suppress_clear_proof_lifecycle_clear_suppressed,w2_retire_record_physical_bundle_suppress_clear_proof_all_clear_aligned \
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
+  --fixture replay-ldi-sdi-ldi-sdi-ldi-ldi-loop \
+  --build-dir generated/r605-replay-physical-suppress-clear-proof-xcheck \
+  --expected-rows 18 --capture-rows 32 --max-seconds 10 \
+  --reduced-store-replay-liq --disable-store-memory-mutation \
+  --allow-residual-replay-liq-wait
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Evidence:
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -35,7 +36,54 @@ HISTORICAL_DOC_ARCHIVES = {
     DOCS_ROOT / "verification/phase2-evidence.md",
     DOCS_ROOT / "verification/phase5-prep-evidence.md",
 }
-SUPPORTED_CANONICAL_ARGS = {"--dry-run", "--check-dependencies"}
+HISTORICAL_START = "<!-- task15-historical-specialized-evidence:start -->"
+HISTORICAL_END = "<!-- task15-historical-specialized-evidence:end -->"
+HISTORICAL_DECLARATION = "no current runnable equivalent"
+
+
+def documentation_reference_errors(path: Path, source: str) -> tuple[list[str], int]:
+    """Validate deleted-wrapper references are confined to honest evidence blocks."""
+    errors: list[str] = []
+    in_historical = False
+    declaration_seen = False
+    block_count = 0
+    marker = re.compile(
+        f"({re.escape(HISTORICAL_START)}|{re.escape(HISTORICAL_END)})")
+
+    def inspect_segment(segment: str, line_number: int) -> None:
+        nonlocal declaration_seen
+        if in_historical and HISTORICAL_DECLARATION in segment:
+            declaration_seen = True
+        if not in_historical:
+            for name in DELETED_WRAPPERS:
+                if name in segment:
+                    errors.append(f"{path.relative_to(ROOT)}:{line_number}:{name}")
+
+    for line_number, line in enumerate(source.splitlines(), 1):
+        offset = 0
+        for match in marker.finditer(line):
+            inspect_segment(line[offset:match.start()], line_number)
+            token = match.group(0)
+            if token == HISTORICAL_START:
+                if in_historical:
+                    errors.append(
+                        f"{path.relative_to(ROOT)}:{line_number}:nested historical block")
+                in_historical = True
+                declaration_seen = False
+                block_count += 1
+            else:
+                if not in_historical:
+                    errors.append(
+                        f"{path.relative_to(ROOT)}:{line_number}:orphan historical end")
+                elif not declaration_seen:
+                    errors.append(
+                        f"{path.relative_to(ROOT)}:{line_number}:missing no-equivalent declaration")
+                in_historical = False
+            offset = match.end()
+        inspect_segment(line[offset:], line_number)
+    if in_historical:
+        errors.append(f"{path.relative_to(ROOT)}:unclosed historical block")
+    return errors, block_count
 
 
 def canonical_invocation_errors(path: Path, source: str) -> list[str]:
@@ -60,9 +108,12 @@ def canonical_invocation_errors(path: Path, source: str) -> list[str]:
         if not command_like:
             continue
 
-        options = re.findall(r"(?:^|\s)(--[a-z0-9-]+)", after)
-        if (len(options) > 1 or
-                any(option not in SUPPORTED_CANONICAL_ARGS for option in options)):
+        try:
+            arguments = shlex.split(after)
+        except ValueError:
+            errors.append(f"{path.relative_to(ROOT)}:{index + 1}:invalid command syntax")
+            continue
+        if arguments not in ([], ["--dry-run"], ["--check-dependencies"]):
             errors.append(f"{path.relative_to(ROOT)}:{index + 1}:unsupported arguments")
         if after.rstrip().endswith("\\"):
             errors.append(f"{path.relative_to(ROOT)}:{index + 1}:continued arguments")
@@ -121,11 +172,14 @@ def main() -> int:
     ]
     forbidden_docs: list[str] = []
     unsupported_canonical_docs: list[str] = []
+    historical_specialized_blocks = 0
+    historical_specialized_docs = 0
     for path in active_docs:
         source = path.read_text(encoding="utf-8")
-        for name in DELETED_WRAPPERS:
-            if name in source:
-                forbidden_docs.append(f"{path.relative_to(ROOT)}:{name}")
+        reference_errors, block_count = documentation_reference_errors(path, source)
+        forbidden_docs.extend(reference_errors)
+        historical_specialized_blocks += block_count
+        historical_specialized_docs += int(block_count > 0)
         unsupported_canonical_docs.extend(canonical_invocation_errors(path, source))
     if forbidden_docs:
         fail("active documentation names deleted wrappers: " + ", ".join(forbidden_docs))
@@ -148,6 +202,8 @@ def main() -> int:
     print("canonical-dry-run=pass")
     print(f"active-docs-checked={len(active_docs)}")
     print(f"historical-doc-archives-excluded={len(HISTORICAL_DOC_ARCHIVES)}")
+    print(f"historical-specialized-docs={historical_specialized_docs}")
+    print(f"historical-specialized-blocks={historical_specialized_blocks}")
     return 0
 
 

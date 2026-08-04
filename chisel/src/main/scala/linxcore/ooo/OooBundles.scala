@@ -1454,7 +1454,8 @@ class OooD2GroupedTransaction(val p: OooParams = OooParams()) extends Bundle {
   val groupMask = UInt(p.instructionDecodeWidth.W)
   val groups = Vec(p.instructionDecodeWidth, new OooRobGroupPreview(p))
   val uopGroupIndex = Vec(p.decodedUopWidth, UInt(p.robGroupIndexWidth.W))
-  val uopMemberBase = Vec(p.decodedUopWidth, UInt(p.robMemberIndexWidth.W))
+  val uopMemberBase = Vec(p.decodedUopWidth,
+    UInt(p.robPhysicalMemberIndexWidth.W))
 }
 
 class OooD3GroupedReservation(val p: OooParams = OooParams()) extends Bundle {

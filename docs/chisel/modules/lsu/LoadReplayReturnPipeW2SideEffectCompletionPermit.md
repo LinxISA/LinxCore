@@ -117,6 +117,9 @@ path remains the R335 readiness join, so fixture behavior is unchanged.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectCompletionPermit
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectReady
@@ -124,8 +127,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ResolveSinkRe
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WritebackSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r345-replay-pipe-w2-side-effect-completion-permit-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r345-replay-pipe-w2-side-effect-completion-permit-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover full side-effect permit, resolve-only permit, missing
 sink masks, disabled/flush/no-candidate dormancy, empty required-mask

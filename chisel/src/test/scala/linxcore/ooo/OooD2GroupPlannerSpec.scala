@@ -118,8 +118,14 @@ class OooD2GroupPlannerSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("splits before physical member overflow and computes member bases") {
-    val p = OooParams()
+  test("splits before physical member overflow with unequal identity and physical domains") {
+    val p = OooParams(
+      robIdentityMembersPerGroup = 4,
+      maxOrdinaryUopsPerGroup = 12,
+      maxRecipeUops = 32,
+      uopIdentityEntriesPerInstruction = 32)
+    assert(new RobMemberKey(p).memberIndex.getWidth == 2)
+    assert(new OooD2GroupedTransaction(p).uopMemberBase.head.getWidth == 4)
     simulate(new OooD2GroupPlanner(p)) { dut =>
       clear(dut)
       for (index <- 0 until 4) {

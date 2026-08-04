@@ -103,6 +103,9 @@ payload remains dormant until this sink's live enable is asserted.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupSinkReady
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2WakeupRequest
@@ -110,8 +113,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectRea
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2Slot
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r338-replay-pipe-w2-wakeup-sink-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r338-replay-pipe-w2-wakeup-sink-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover live wakeup readiness, live-disabled arming, abstract
 wakeup-sink backpressure priority, disabled/flush/no-wakeup diagnostics, and

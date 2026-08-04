@@ -66,11 +66,11 @@ The affected top-level replay also passes with this module in the path. R153
 uses resolved geometry for cold body-end cuts and trains a local body window for
 later header-visible cuts without allowing forward/fallthrough `BSTART` rows to
 clip the body:
-`BUILD_DIR=generated/r153-local-body-window-4000-rtl-replay-v6
+<!-- task15-historical-specialized-evidence:start -->historical evidence only (no current runnable equivalent): `BUILD_DIR=generated/r153-local-body-window-4000-rtl-replay-v6
 FETCH_QEMU_TRACE=generated/r153-next-frontier-4000-qemu-probe/traces/qemu.live.raw.jsonl
 FETCH_QEMU_MAX_ROWS=0
 FETCH_QEMU_ALLOW_BLOCK_MARKERS=1
 FETCH_QEMU_ALLOW_BLOCK_LOOP_REENTRY=1
 FETCH_ELF=tests/benchmarks/build/coremark_real.elf
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
+bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`<!-- task15-historical-specialized-evidence:end -->
 compares 3280 normalized QEMU/DUT rows with zero mismatches.

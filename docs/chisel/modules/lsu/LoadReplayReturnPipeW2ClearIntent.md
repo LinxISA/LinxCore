@@ -114,6 +114,9 @@ mutation, issue wakeup, or replay-row lifecycle.
 
 Focused gates:
 
+<!-- task15-historical-specialized-evidence:start -->
+> Historical evidence only; this preserved pre-cutover command has no current runnable equivalent. Its cited artifact and commit provenance remain the evidence; do not use it as a current procedure.
+
 ```bash
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2ClearIntent
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectFireComplete
@@ -121,8 +124,9 @@ bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2SideEffectCom
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2CompletionCandidate
 bash tools/chisel/run_chisel_tests.sh --only LoadReplayReturnPipeW2PromotionControl
 bash tools/chisel/run_chisel_tests.sh --only LinxCoreFrontendFetchRfAluTraceTop
-BUILD_DIR=generated/r351-replay-pipe-w2-clear-intent-xcheck bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+FETCH_REDUCED_STORE_REPLAY_LIQ=1 BUILD_DIR=generated/r351-replay-pipe-w2-clear-intent-xcheck bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
 ```
+<!-- task15-historical-specialized-evidence:end -->
 
 Reference tests cover dormant clear intent, live-clear gating, no-slot stray
 evidence, disabled/flush suppression, missing pre-clear evidence, missing
