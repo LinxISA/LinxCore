@@ -2,6 +2,29 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+if [[ "${1:-}" == "--check-dependencies" ]]; then
+  exec python3 "${ROOT_DIR}/tools/chisel/check_crosscheck_wrapper_dependencies.py"
+fi
+
+FINALIZE_REQUESTED=0
+for argument in "$@"; do
+  if [[ "${argument}" == "--finalize-only" ]]; then
+    FINALIZE_REQUESTED=1
+    break
+  fi
+done
+if [[ "${FINALIZE_REQUESTED}" -eq 0 ]]; then
+  cat >&2 <<'MESSAGE'
+error: the reduced frontend-fetch-RF-ALU QEMU/RTL path depended on deleted
+test-only tops and is no longer supported. Existing artifact bundles may still
+use --finalize-only. Migrate new bounded generated-RTL checks to:
+  bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+Use --check-dependencies for a non-RTL source-contract check.
+MESSAGE
+  exit 2
+fi
+
 BUILD_DIR="${BUILD_DIR:-${ROOT_DIR}/generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck}"
 if [[ "${BUILD_DIR}" != /* ]]; then
   BUILD_DIR="${ROOT_DIR}/${BUILD_DIR}"

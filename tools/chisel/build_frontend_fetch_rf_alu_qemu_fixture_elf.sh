@@ -8,9 +8,8 @@ if [[ "${1:-}" == "--check-dependencies" ]]; then
 fi
 
 cat >&2 <<'MESSAGE'
-error: QEMU-to-arbitrary-Chisel-trace replay depended on the deleted full-core
-replay top and is no longer supported. Migrate bounded generated-RTL checks to:
-  bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+error: the reduced frontend-fetch-RF-ALU fixture builder belongs to a deleted
+test-only top and is no longer supported. Do not regenerate that obsolete ELF.
 Use --check-dependencies for a non-RTL source-contract check.
 MESSAGE
 exit 2

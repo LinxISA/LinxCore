@@ -311,6 +311,89 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("joint lane1 allocation after a prior row accepts exact replay") {
+    simulate(new OOOIEXLSUActivationProbe(OOOIEXLSUActivationParams.W4)) { dut =>
+      initialize(dut)
+
+      val start = OooOpcodeRecipeTable.Rules.find(
+        _.symbol == "OP_BSTART_FALL").get
+      val load = OooOpcodeRecipeTable.Rules.find(_.symbol == "OP_LDI").get
+      val stop = OooOpcodeRecipeTable.Rules.find(_.symbol == "OP_BSTOP").get
+      val encodings = Seq(
+        (start, start.value, 0x2a00),
+        (load, load.value | (BigInt(0x180) << 20) | (BigInt(5) << 7),
+          0x2a04),
+        (load, load.value | (BigInt(0x188) << 20) | (BigInt(6) << 7),
+          0x2a08),
+        (stop, stop.value, 0x2a0c))
+      dut.io.program.bits.count.poke(encodings.length.U)
+      encodings.zipWithIndex.foreach { case ((rule, raw, pc), lane) =>
+        val entry = dut.io.program.bits.entries(lane)
+        entry.kind.poke(FrontEndOpKind.Encoded64)
+        entry.parent.identity.peId.poke(1.U)
+        entry.parent.identity.stid.poke(0.U)
+        entry.parent.identity.instructionId.poke((90 + lane).U)
+        entry.parent.identity.epoch.poke(1.U)
+        entry.parent.pc.poke(pc.U)
+        entry.parent.instruction.poke(raw.U)
+        entry.parent.lengthBytes.poke(rule.lenBytes.U)
+        entry.parent.prediction.valid.poke(true.B)
+        entry.parent.prediction.requestPc.poke(pc.U)
+        entry.parent.prediction.fallthroughPc.poke((pc + rule.lenBytes).U)
+        entry.parent.prediction.epoch.poke(1.U)
+      }
+      dut.io.program.valid.poke(true.B)
+      while (!dut.io.program.ready.peek().litToBoolean) dut.clock.step()
+      dut.clock.step()
+      dut.io.program.valid.poke(false.B)
+
+      var cycles = 0
+      while ((dut.io.loadLaneIssueCount(0).peek().litValue == 0 ||
+          dut.io.loadLaneIssueCount(1).peek().litValue == 0) && cycles < 192) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 192,
+        "two joint loads must allocate distinct rows and launch once")
+      dut.io.lastLoadIssueIdentityByLane(1).pipeId.expect(1.U,
+        "the second load must retain the nonzero AGU/return-pipe lane")
+
+      val lane1Identity = dut.io.lastLoadIssueIdentityByLane(1).peek()
+      val lane1Attempt =
+        dut.io.lastLoadIssueIdentityByLane(1).attemptGeneration.peek().litValue
+      val lane1TransactionValue =
+        dut.io.lastLoadIssueIdentityByLane(1).transaction.value.peek().litValue
+      val lane1TransactionGeneration =
+        dut.io.lastLoadIssueIdentityByLane(1).transaction.generation.peek()
+          .litValue
+      val lane1Allocation = dut.io.lastLoadAllocationIdByLane(1).peek()
+      val reissue = dut.io.loadReissueRequest
+      reissue.bits.poke(0.U.asTypeOf(reissue.bits))
+      reissue.bits.allocationId.poke(lane1Allocation)
+      reissue.bits.currentIdentity.poke(lane1Identity)
+      reissue.bits.address.poke(dut.io.lastLoadAddressByLane(1).peek())
+      reissue.valid.poke(true.B)
+      cycles = 0
+      while (!reissue.ready.peek().litToBoolean && cycles < 64) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 64,
+        "lane-1 metadata must bind its own allocation preview for exact replay")
+      dut.clock.step()
+      reissue.valid.poke(false.B)
+      dut.io.lastLoadRebindCurrent.expect(lane1Identity)
+      dut.io.lastLoadRebindNext.pipeId.expect(1.U)
+      dut.io.lastLoadRebindNext.transaction.value.expect(
+        lane1TransactionValue.U)
+      dut.io.lastLoadRebindNext.transaction.generation.expect(
+        lane1TransactionGeneration.U)
+      dut.io.lastLoadRebindNext.attemptGeneration.expect(
+        (lane1Attempt + 1).U)
+      dut.io.loadAttemptCancelCount.expect(1.U)
+    }
+  }
+
   test("public direct J publishes one exact branch recovery target") {
     simulate(new OOOIEXLSUActivationProbe(OOOIEXLSUActivationParams.W4)) { dut =>
       initialize(dut)

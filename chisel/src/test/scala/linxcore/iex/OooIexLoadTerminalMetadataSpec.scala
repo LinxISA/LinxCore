@@ -109,7 +109,36 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     attempt.producer.memberIndex.poke(load.producer.memberIndex.peek())
     attempt.producer.residentGeneration.poke(
       load.producer.residentGeneration.peek())
+    attempt.transactionValue.poke(load.transaction.value.peek())
+    attempt.transactionGeneration.poke(load.transaction.generation.peek())
     attempt.generation.poke(load.generation.peek())
+  }
+
+  private def pokeRebind(
+      dut: OooIexLoadTerminalMetadata,
+      slot: Int,
+      ridSlot: Int,
+      currentGeneration: Int,
+      nextGeneration: Int,
+      transactionValue: BigInt,
+      transactionGeneration: BigInt): Unit = {
+    val rebind = dut.io.rebind.bits
+    rebind.poke(0.U.asTypeOf(rebind))
+    rebind.loadId.valid.poke(true.B)
+    rebind.loadId.slot.poke(slot.U)
+    rebind.currentLoad.valid.poke(true.B)
+    pokeMember(rebind.currentLoad.producer, ridSlot)
+    rebind.currentLoad.transaction.value.poke(transactionValue.U)
+    rebind.currentLoad.transaction.generation.poke(transactionGeneration.U)
+    rebind.currentLoad.generation.poke(currentGeneration.U)
+    pokeAttemptFromLoad(rebind.currentAttempt, rebind.currentLoad)
+    rebind.nextLoad.valid.poke(true.B)
+    pokeMember(rebind.nextLoad.producer, ridSlot)
+    rebind.nextLoad.transaction.value.poke(transactionValue.U)
+    rebind.nextLoad.transaction.generation.poke(transactionGeneration.U)
+    rebind.nextLoad.generation.poke(nextGeneration.U)
+    pokeAttemptFromLoad(rebind.nextAttempt, rebind.nextLoad)
+    dut.io.rebind.valid.poke(true.B)
   }
 
   private def pokeAlloc(
@@ -195,6 +224,9 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     completion.payload.attempt.producer.ridGeneration.poke(5.U)
     completion.payload.attempt.producer.memberIndex.poke(1.U)
     completion.payload.attempt.producer.residentGeneration.poke(11.U)
+    completion.payload.attempt.transactionValue.poke(transactionValue.U)
+    completion.payload.attempt.transactionGeneration.poke(
+      transactionGeneration.U)
     completion.payload.attempt.generation.poke(attemptGeneration.U)
     completion.payload.transactionValid.poke(true.B)
     completion.payload.transactionValue.poke(transactionValue.U)
@@ -301,6 +333,7 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.io.rebindRejected.valid.expect(true.B)
 
       rebind.nextLoad.transaction.value.poke(19.U)
+      pokeAttemptFromLoad(rebind.nextAttempt, rebind.nextLoad)
       dut.io.rebind.ready.expect(true.B)
       dut.clock.step()
       dut.io.rebind.valid.poke(false.B)
@@ -310,30 +343,40 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
         transactionGeneration = 3)
       dut.io.result.ready.poke(true.B)
       dut.io.result.valid.expect(false.B)
-      dut.io.completion.ready.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
         attemptGeneration = 4, transactionValue = 19,
         transactionGeneration = 3)
-      dut.io.completion.ready.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
         attemptGeneration = 5, transactionValue = 20,
         transactionGeneration = 3)
-      dut.io.completion.ready.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
       dut.io.completionRejected.bits.transactionExact.expect(false.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
         attemptGeneration = 5, transactionValue = 19,
         transactionGeneration = 3, pipeIndex = 1)
-      dut.io.completion.ready.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
       dut.io.completionRejected.bits.pipeExact.expect(false.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
         attemptGeneration = 5, transactionValue = 19,
         transactionGeneration = 3)
       dut.io.completion.bits.payload.valid.poke(false.B)
-      dut.io.completion.ready.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
         attemptGeneration = 5, transactionValue = 19,
@@ -346,7 +389,9 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.occupied.expect(1.U)
       dut.io.result.valid.expect(false.B)
-      dut.io.completion.ready.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
         attemptGeneration = 6, transactionValue = 19,
@@ -355,6 +400,65 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.io.result.bits.load.transaction.value.expect(19.U)
       dut.io.result.bits.load.transaction.generation.expect(3.U)
       dut.io.result.bits.load.generation.expect(6.U)
+      dut.clock.step()
+      dut.io.completion.valid.poke(false.B)
+      dut.io.empty.expect(true.B)
+    }
+  }
+
+  test("two replays drain stale attempts in reverse order and drain future attempts without mutation") {
+    simulate(new OooIexLoadTerminalMetadata(p, core)) { dut =>
+      defaults(dut)
+      pokeAlloc(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, transactionValue = 19,
+        transactionGeneration = 3)
+      acceptAlloc(dut)
+
+      pokeRebind(dut, slot = 1, ridSlot = 2, currentGeneration = 5,
+        nextGeneration = 6, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.rebind.ready.expect(true.B)
+      dut.clock.step()
+      pokeRebind(dut, slot = 1, ridSlot = 2, currentGeneration = 6,
+        nextGeneration = 7, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.rebind.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.rebind.valid.poke(false.B)
+      dut.io.result.ready.poke(true.B)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 8, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completionRejected.valid.expect(true.B)
+      dut.io.completion.ready.expect(true.B,
+        "a future untracked attempt must reject-and-drain")
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 6, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completion.ready.expect(true.B,
+        "the oldest tombstone must survive a second rebind")
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 7, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.result.valid.expect(true.B)
+      dut.io.completion.ready.expect(true.B)
       dut.clock.step()
       dut.io.completion.valid.poke(false.B)
       dut.io.empty.expect(true.B)

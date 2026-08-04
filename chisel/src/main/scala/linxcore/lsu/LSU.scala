@@ -183,12 +183,46 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     data.ready := store.io.storeData(lane).ready
   }
 
-  store.io.recovery <> io.recovery
+  private val loadRecoveryBoundaryMatch = VecInit(load.io.liqRows.map { row =>
+    val firstKilled = io.recovery.prepare.bits.firstKilled
+    row.valid && row.loadLsIdFullValid && row.attempt.valid &&
+      row.attempt.producer.valid && row.attempt.producer.nativeBidValid &&
+      row.attempt.producer.peId === firstKilled.peId &&
+      row.attempt.producer.stid === firstKilled.stid &&
+      row.attempt.producer.nativeBid === firstKilled.bid &&
+      row.attempt.producer.brobGeneration === firstKilled.brobGeneration &&
+      row.attempt.producer.ridSlot === firstKilled.ridSlot &&
+      row.attempt.producer.ridGeneration === firstKilled.ridGeneration &&
+      row.attempt.producer.memberIndex === firstKilled.memberIndex &&
+      row.attempt.producer.residentGeneration ===
+        firstKilled.residentGeneration
+  })
+  private val loadRecoveryBoundaryExact =
+    !io.recovery.prepare.bits.firstKilledValid ||
+      PopCount(loadRecoveryBoundaryMatch) === 1.U
+  private val selectedLoadRecoveryLsId = Mux1H(
+    loadRecoveryBoundaryMatch, load.io.liqRows.map(_.loadLsIdFull))
+
+  // Recovery preparation is one common store/load transaction. A killed
+  // boundary that cannot be resolved to exactly one authoritative LIQ full
+  // LSID fails closed: neither sub-owner mutates nor publishes prepared.
+  store.io.recovery.prepare.valid :=
+    io.recovery.prepare.valid && loadRecoveryBoundaryExact
+  store.io.recovery.prepare.bits := io.recovery.prepare.bits
+  io.recovery.prepare.ready :=
+    store.io.recovery.prepare.ready && loadRecoveryBoundaryExact
+  io.recovery.prepared.valid := store.io.recovery.prepared.valid
+  io.recovery.prepared.bits := store.io.recovery.prepared.bits
+  store.io.recovery.prepared.ready := io.recovery.prepared.ready
+  store.io.recovery.apply := io.recovery.apply
+  store.io.recovery.abort := io.recovery.abort
   private val loadRecoveryPending = RegInit(false.B)
   private val loadRecoveryPlan = Reg(new RecoveryPlan(p))
+  private val loadRecoveryLsIdFull = Reg(UInt(p.lsidWidth.W))
   when(io.recovery.prepare.fire) {
     loadRecoveryPending := true.B
     loadRecoveryPlan := io.recovery.prepare.bits
+    loadRecoveryLsIdFull := selectedLoadRecoveryLsId
   }
   private val loadRecoveryApply = loadRecoveryPending &&
     io.recovery.apply.valid && io.recovery.apply.bits.phase === RecoveryPhase.Apply &&
@@ -556,9 +590,9 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
       loadRecoveryPlan.firstKilled.ridSlot)
     projectRobId(load.io.preciseFlush.req.rid,
       loadRecoveryPlan.firstKilled.ridSlot)
-    projectRobId(load.io.preciseFlush.req.lsId, 0.U)
+    projectRobId(load.io.preciseFlush.req.lsId, loadRecoveryLsIdFull)
     load.io.preciseFlush.req.lsIdFullValid := true.B
-    load.io.preciseFlush.req.lsIdFull := 0.U
+    load.io.preciseFlush.req.lsIdFull := loadRecoveryLsIdFull
     load.io.preciseFlush.req.execEngine := ExecEngineType.Mem
     load.io.preciseFlush.req.fetchTpcValid := false.B
     load.io.preciseFlush.req.fetchTpc := loadRecoveryPlan.redirectPc

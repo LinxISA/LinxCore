@@ -8,8 +8,9 @@ if [[ "${1:-}" == "--check-dependencies" ]]; then
 fi
 
 cat >&2 <<'MESSAGE'
-error: QEMU-to-arbitrary-Chisel-trace replay depended on the deleted full-core
-replay top and is no longer supported. Migrate bounded generated-RTL checks to:
+error: the reduced frontend-fetch-RF-ALU generated-RTL contract was removed and
+is not equivalent to the current production frontend trace top. Migrate bounded
+cross-checks to:
   bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 Use --check-dependencies for a non-RTL source-contract check.
 MESSAGE

@@ -468,11 +468,14 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
   // meaningful before the request is asserted, which lets metadata validate
   // the prospective row without making request-valid depend on the returned
   // Valid marker and forming an IEX/LSU combinational cycle.
+  val selectedLoadAllocation = Mux1H(
+    UIntToOH(privateLoad.bits.returnPipeIndex, p.lsu.loadPipes),
+    io.lsu.loadAllocation.map(_.bits))
   implementation.io.load.liqAllocLoadId.valid := true.B
   implementation.io.load.liqAllocLoadId.value :=
-    io.lsu.loadAllocation.head.bits.allocationId.value
+    selectedLoadAllocation.allocationId.value
   implementation.io.load.liqAllocLoadId.wrap :=
-    io.lsu.loadAllocation.head.bits.allocationId.generation(0)
+    selectedLoadAllocation.allocationId.generation(0)
 
   val loadLaunchValid = VecInit(io.lsu.loadLaunch.map(_.valid))
   val selectedLoadLaunch = Mux1H(loadLaunchValid,

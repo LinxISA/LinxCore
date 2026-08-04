@@ -1,5 +1,6 @@
 package linxcore.params
 
+import linxcore.iex.OOOIEXLSUActivationParams
 import org.scalatest.funsuite.AnyFunSuite
 
 class SimulationParamProfilesSpec extends AnyFunSuite {
@@ -112,6 +113,35 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(sim.ooo.uPhysRegs == main.ooo.uPhysRegs)
     assert(sim.ooo.tuMapQDepthPerStid == main.ooo.tuMapQDepthPerStid)
     assert(sim.ooo.pcBufferEntries == main.ooo.pcBufferEntries)
+  }
+
+  test("W4 activation preserves every identity-defining production domain") {
+    val main = ParamProfiles.W4
+    val activation = OOOIEXLSUActivationParams.W4
+
+    assert(activation.ooo.stidCount == main.ooo.stidCount)
+    assert(activation.ooo.robGroupsPerStid == main.ooo.robGroupsPerStid)
+    assert(activation.ooo.maxInstructionsPerRobGroup ==
+      main.ooo.maxInstructionsPerRobGroup)
+    assert(activation.ooo.maxUopsPerInstruction ==
+      main.ooo.maxUopsPerInstruction)
+    assert(activation.ooo.brobEntriesPerStid == main.ooo.brobEntriesPerStid)
+    assert(activation.ooo.gprPhysRegs == main.ooo.gprPhysRegs)
+    assert(activation.ooo.gprMapQDepthPerStid == main.ooo.gprMapQDepthPerStid)
+    assert(activation.ooo.tPhysRegs == main.ooo.tPhysRegs)
+    assert(activation.ooo.uPhysRegs == main.ooo.uPhysRegs)
+    assert(activation.ooo.tuMapQDepthPerStid == main.ooo.tuMapQDepthPerStid)
+    assert(activation.nativeBidWidth == main.nativeBidWidth)
+    assert(activation.ridGenerationWidth == main.ridGenerationWidth)
+    assert(activation.brobGenerationWidth == main.brobGenerationWidth)
+    assert(activation.lsidWidth == main.lsidWidth)
+    assert(activation.transactionIdWidth == main.transactionIdWidth)
+    assert(activation.memoryTransactionIdWidth ==
+      main.memoryTransactionIdWidth)
+    assert(activation.memoryTransactionGenerationWidth ==
+      main.memoryTransactionGenerationWidth)
+    assert(activation.memoryAttemptGenerationWidth ==
+      main.memoryAttemptGenerationWidth)
   }
 
   test("simulation capacity changes never mutate main profiles") {

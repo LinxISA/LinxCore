@@ -16,20 +16,20 @@ object OOOIEXLSUActivationParams {
   private val main = ParamProfiles.W4
   val W4: CoreParams = main.copy(
     ooo = main.ooo.copy(
-      stidCount = 2,
-      robGroupsPerStid = 8,
-      maxInstructionsPerRobGroup = 1,
-      maxUopsPerInstruction = 12,
+      stidCount = main.ooo.stidCount,
+      robGroupsPerStid = main.ooo.robGroupsPerStid,
+      maxInstructionsPerRobGroup = main.ooo.maxInstructionsPerRobGroup,
+      maxUopsPerInstruction = main.ooo.maxUopsPerInstruction,
       robBankCount = 4,
-      brobEntriesPerStid = 4,
+      brobEntriesPerStid = main.ooo.brobEntriesPerStid,
       pcBufferEntries = 8,
       pcBankCount = 4,
       pcRecoveryScanGroupsPerCycle = 4,
-      gprPhysRegs = 64,
-      gprMapQDepthPerStid = 8,
-      tPhysRegs = 8,
-      uPhysRegs = 8,
-      tuMapQDepthPerStid = 8),
+      gprPhysRegs = main.ooo.gprPhysRegs,
+      gprMapQDepthPerStid = main.ooo.gprMapQDepthPerStid,
+      tPhysRegs = main.ooo.tPhysRegs,
+      uPhysRegs = main.ooo.uPhysRegs,
+      tuMapQDepthPerStid = main.ooo.tuMapQDepthPerStid),
     iex = main.iex.copy(scalarIssueEntries = 4),
     lsu = main.lsu.copy(
       loadQueueEntries = 2,
@@ -93,6 +93,13 @@ class OOOIEXLSUActivationProbeIO(val p: CoreParams) extends Bundle {
   val loadAttemptLaunchCount = Output(UInt(32.W))
   val loadAttemptCancelCount = Output(UInt(32.W))
   val loadResultCount = Output(UInt(32.W))
+  val loadLaneIssueCount = Output(Vec(p.lsu.loadPipes, UInt(32.W)))
+  val lastLoadIssueIdentityByLane = Output(Vec(p.lsu.loadPipes,
+    new MemoryIdentity(p)))
+  val lastLoadAllocationIdByLane = Output(Vec(p.lsu.loadPipes,
+    new MemoryTransactionIdentity(p)))
+  val lastLoadAddressByLane = Output(Vec(p.lsu.loadPipes,
+    UInt(p.physicalAddressWidth.W)))
   val lastLoadIssueIdentity = Output(new MemoryIdentity(p))
   val lastLoadAllocationId = Output(new MemoryTransactionIdentity(p))
   val lastLoadDestination = Output(
@@ -340,9 +347,19 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   io.loadAttemptLaunchCount := countWhen(loadAttemptLaunchFire)
   io.loadAttemptCancelCount := countWhen(loadRebindFire)
   io.loadResultCount := countWhen(loadResultFire)
+  for (lane <- 0 until p.lsu.loadPipes) {
+    io.loadLaneIssueCount(lane) := countWhen(
+      lsu.io.iex.loadAddress(lane).fire)
+  }
   val lastLoadIssueIdentity = RegInit(0.U.asTypeOf(new MemoryIdentity(p)))
   val lastLoadAllocationId = RegInit(
     0.U.asTypeOf(new MemoryTransactionIdentity(p)))
+  val lastLoadIssueIdentityByLane = RegInit(VecInit(Seq.fill(p.lsu.loadPipes)(
+    0.U.asTypeOf(new MemoryIdentity(p)))))
+  val lastLoadAllocationIdByLane = RegInit(VecInit(Seq.fill(p.lsu.loadPipes)(
+    0.U.asTypeOf(new MemoryTransactionIdentity(p)))))
+  val lastLoadAddressByLane = RegInit(VecInit(Seq.fill(p.lsu.loadPipes)(
+    0.U(p.physicalAddressWidth.W))))
   val lastLoadDestination = RegInit(0.U.asTypeOf(
     new linxcore.top.interface.RenamedDestination(p)))
   val lastLoadDestinationRelativeIndex = RegInit(0.U(p.archRegWidth.W))
@@ -350,25 +367,43 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   val lastLoadRebindCurrent = RegInit(0.U.asTypeOf(new MemoryIdentity(p)))
   val lastLoadRebindNext = RegInit(0.U.asTypeOf(new MemoryIdentity(p)))
   val lastLoadResultIdentity = RegInit(0.U.asTypeOf(new MemoryIdentity(p)))
-  when(lsu.io.iex.loadAddress.head.fire) {
-    lastLoadIssueIdentity := lsu.io.iex.loadAddress.head.bits.identity
-    lastLoadAllocationId := lsu.io.iex.loadAllocation.head.bits.allocationId
-    lastLoadDestination := lsu.io.iex.loadAddress.head.bits.destination
-    lastLoadDestinationRelativeIndex :=
-      lsu.io.iex.loadAddress.head.bits.destinationRelativeIndex
+  for (lane <- lsu.io.iex.loadAddress.indices) {
+    when(lsu.io.iex.loadAddress(lane).fire) {
+      lastLoadIssueIdentityByLane(lane) :=
+        lsu.io.iex.loadAddress(lane).bits.identity
+      lastLoadAllocationIdByLane(lane) :=
+        lsu.io.iex.loadAllocation(lane).bits.allocationId
+      lastLoadAddressByLane(lane) := lsu.io.iex.loadAddress(lane).bits.address
+      lastLoadIssueIdentity := lsu.io.iex.loadAddress(lane).bits.identity
+      lastLoadAllocationId :=
+        lsu.io.iex.loadAllocation(lane).bits.allocationId
+      lastLoadDestination := lsu.io.iex.loadAddress(lane).bits.destination
+      lastLoadDestinationRelativeIndex :=
+        lsu.io.iex.loadAddress(lane).bits.destinationRelativeIndex
+    }
   }
-  when(lsu.io.iex.loadLaunch.head.valid) {
-    lastLoadLaunchIdentity := lsu.io.iex.loadLaunch.head.bits.identity
+  for (lane <- lsu.io.iex.loadLaunch.indices) {
+    when(lsu.io.iex.loadLaunch(lane).valid) {
+      lastLoadLaunchIdentity := lsu.io.iex.loadLaunch(lane).bits.identity
+    }
   }
-  when(iex.io.lsu.loadRebindApply.head.fire) {
-    lastLoadRebindCurrent := iex.io.lsu.loadRebindApply.head.bits.currentIdentity
-    lastLoadRebindNext := iex.io.lsu.loadRebindApply.head.bits.nextIdentity
+  for (lane <- iex.io.lsu.loadRebindApply.indices) {
+    when(iex.io.lsu.loadRebindApply(lane).fire) {
+      lastLoadRebindCurrent :=
+        iex.io.lsu.loadRebindApply(lane).bits.currentIdentity
+      lastLoadRebindNext := iex.io.lsu.loadRebindApply(lane).bits.nextIdentity
+    }
   }
-  when(iex.io.lsu.loadResult.head.fire) {
-    lastLoadResultIdentity := iex.io.lsu.loadResult.head.bits.identity
+  for (lane <- iex.io.lsu.loadResult.indices) {
+    when(iex.io.lsu.loadResult(lane).fire) {
+      lastLoadResultIdentity := iex.io.lsu.loadResult(lane).bits.identity
+    }
   }
   io.lastLoadIssueIdentity := lastLoadIssueIdentity
   io.lastLoadAllocationId := lastLoadAllocationId
+  io.lastLoadIssueIdentityByLane := lastLoadIssueIdentityByLane
+  io.lastLoadAllocationIdByLane := lastLoadAllocationIdByLane
+  io.lastLoadAddressByLane := lastLoadAddressByLane
   io.lastLoadDestination := lastLoadDestination
   io.lastLoadDestinationRelativeIndex := lastLoadDestinationRelativeIndex
   io.lastLoadLaunchIdentity := lastLoadLaunchIdentity
