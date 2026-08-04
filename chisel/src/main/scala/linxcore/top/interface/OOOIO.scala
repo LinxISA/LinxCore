@@ -10,6 +10,8 @@ class OOOIO(val p: CoreParams) extends Bundle {
   val commit = Decoupled(new CommitTxn(p))
   val trap = Decoupled(new TrapEvent(p))
   val interrupt = Flipped(Valid(new InterruptRequest(p)))
+  val debugRequest = Flipped(Decoupled(new DebugRequest(p)))
+  val debugResponse = Decoupled(new DebugResponse(p))
   val recoveryToIfu = new RecoveryTargetIO(p)
   val recoveryToCtu = new RecoveryTargetIO(p)
   val recoveryToLsu = new RecoveryTargetIO(p)

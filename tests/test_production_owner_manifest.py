@@ -134,19 +134,14 @@ class ProductionOwnerManifestTest(unittest.TestCase):
             "completed cutover task 15 cannot retain pending evidence for store_queue",
         )
 
-    def test_pending_private_owner_may_have_no_main_caller(self) -> None:
+    def test_task17_dtu_has_a_canonical_activation_caller(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         row = self.owner("trace_debug_performance_observation", manifest)
-        self.assertEqual(row["public_box_status"], "pending")
-        for caller in row["active_callers"]:
-            fixture = self.root / caller
-            fixture.write_text(
-                fixture.read_text(encoding="utf-8").replace(
-                    "CommitTraceMonitor", "CommitTraceObserver"
-                ),
-                encoding="utf-8",
-            )
-        row["active_callers"] = []
+        self.assertEqual(row["public_box_status"], "module")
+        self.assertEqual(
+            row["active_callers"],
+            ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
+        )
 
         result = self._run(manifest)
 

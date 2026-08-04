@@ -46,7 +46,7 @@ evidence.
 ```json production-owner-manifest
 {
   "schema_version": 2,
-  "completed_cutover_tasks": [13, 15, 16],
+  "completed_cutover_tasks": [13, 15, 16, 17],
   "ndf": {
     "L1": [
       "docs/spec/10-architecture/ownership.md",
@@ -583,15 +583,15 @@ evidence.
     {
       "subsystem": "DTU",
       "state_key": "trace_debug_performance_observation",
-      "canonical_owner": "CommitTraceMonitor",
-      "mechanism_files": ["chisel/src/main/scala/linxcore/commit/CommitTraceMonitor.scala", "chisel/src/main/scala/linxcore/top/interface/DTU.scala"],
+      "canonical_owner": "DTU",
+      "mechanism_files": ["chisel/src/main/scala/linxcore/dtu/DTU.scala", "chisel/src/main/scala/linxcore/dtu/DebugControl.scala", "chisel/src/main/scala/linxcore/dtu/TraceExport.scala", "chisel/src/main/scala/linxcore/dtu/PerformanceCounters.scala"],
       "public_box": "DTU",
-      "public_box_status": "pending",
-      "public_box_file": null,
+      "public_box_status": "module",
+      "public_box_file": "chisel/src/main/scala/linxcore/dtu/DTU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/DTUIO.scala",
-      "active_callers": ["chisel/src/main/scala/linxcore/rob/ROBEntryBank.scala", "chisel/src/main/scala/linxcore/rob/ReducedCommitROB.scala"],
-      "verification_fixtures": ["chisel/src/test/scala/linxcore/commit/CommitTraceMonitorSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/commit/CommitTraceMonitorSpec.scala", "level": "L3", "status": "mechanism-verified-cutover-pending"}],
+      "active_callers": ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
+      "verification_fixtures": ["chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala"],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "case": "trace observation never backpressures a stalled exporter", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala", "case": "OOO accepts halt only at a commit boundary and resume releases it", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
       "deletion_targets": [],
       "adapters": []

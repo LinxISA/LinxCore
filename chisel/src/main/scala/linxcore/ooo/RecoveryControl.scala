@@ -52,8 +52,15 @@ class RecoveryControl(val p: CoreParams, val targetCount: Int) extends Module {
 
   val interruptEvent = Wire(new RecoveryEvent(p))
   interruptEvent := 0.U.asTypeOf(interruptEvent)
-  val anyInterrupt = io.interrupts.map(_.valid).reduce(_ || _)
-  val bestInterrupt = io.interrupts.reduce { (a, b) =>
+  val scopedInterrupts = Wire(Vec(p.ooo.stidCount, new InterruptRequest(p)))
+  for (stid <- 0 until p.ooo.stidCount) {
+    scopedInterrupts(stid) := io.interrupts(stid)
+    scopedInterrupts(stid).valid := io.interrupts(stid).valid &&
+      io.interruptBoundaryValid &&
+      io.interrupts(stid).stid === io.interruptBoundary.stid
+  }
+  val anyInterrupt = scopedInterrupts.map(_.valid).reduce(_ || _)
+  val bestInterrupt = scopedInterrupts.reduce { (a, b) =>
     Mux(a.valid && (!b.valid || a.priority >= b.priority), a, b)
   }
   interruptEvent.transactionId := bestInterrupt.cause

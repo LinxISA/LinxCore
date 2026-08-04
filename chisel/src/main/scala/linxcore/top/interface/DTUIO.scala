@@ -9,4 +9,9 @@ class DTUIO(val p: CoreParams) extends Bundle {
   val commitIn = Flipped(Decoupled(new CommitTxn(p)))
   val debugRequest = Flipped(Decoupled(new DebugRequest(p)))
   val debugResponse = Decoupled(new DebugResponse(p))
+  val controlRequest = Decoupled(new DebugRequest(p))
+  val controlResponse = Flipped(Decoupled(new DebugResponse(p)))
+  val traceOut = Decoupled(new TracePacket(p))
+  val performanceCounters = Output(Vec(
+    p.dtu.performanceCounterCount, UInt(64.W)))
 }

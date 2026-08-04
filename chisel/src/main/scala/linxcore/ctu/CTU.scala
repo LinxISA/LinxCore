@@ -66,10 +66,14 @@ class CTU(val p: CoreParams) extends Module {
     p, depth = p.ctu.instructionBufferEntries))
   buffer.io.prune.valid := applyHit
   buffer.io.prune.bits := io.recovery.apply.bits
-  val recoveryFence = recoveryPending || prepareFire || applyHit || abortHit
-  io.toOoo.valid := buffer.io.deq.valid && !recoveryFence
+  val bufferedStid = buffer.io.deq.bits.entries(0).parent.identity.stid
+  val bufferedRecoveryFence = buffer.io.deq.valid &&
+    ((recoveryPending && bufferedStid === recoveryPlan.trigger.stid) ||
+      (prepareFire && bufferedStid === io.recovery.prepare.bits.trigger.stid) ||
+      (applyHit && bufferedStid === io.recovery.apply.bits.trigger.stid))
+  io.toOoo.valid := buffer.io.deq.valid && !bufferedRecoveryFence
   io.toOoo.bits := buffer.io.deq.bits
-  buffer.io.deq.ready := io.toOoo.ready && !recoveryFence
+  buffer.io.deq.ready := io.toOoo.ready && !bufferedRecoveryFence
 
   val decoders = Seq.fill(p.widths.fetchWidth)(Module(new TemplateDecode(p)))
   val decodeResults = Wire(Vec(
@@ -132,13 +136,23 @@ class CTU(val p: CoreParams) extends Module {
   val tracePacket = RegInit(0.U.asTypeOf(new TracePacket(p)))
   val firstTemplateChunk = currentTemplate && templateOrdinal === 0.U
   val traceCapacity = !firstTemplateChunk || !traceValid || io.trace.ready
-  generated.valid := packetValid && !recoveryPending && !prepareFire &&
-    !applyHit && !abortHit &&
+  val packetStid = current.identity.stid
+  val packetRecoveryFence = packetValid &&
+    ((recoveryPending && packetStid === recoveryPlan.trigger.stid) ||
+      (prepareFire && packetStid === io.recovery.prepare.bits.trigger.stid) ||
+      (applyHit && packetStid === io.recovery.apply.bits.trigger.stid))
+  generated.valid := packetValid && !packetRecoveryFence &&
     generated.bits.count.orR && traceCapacity
   buffer.io.enq <> generated
 
-  io.trace.valid :=
-    traceValid && !recoveryFence
+  val traceRecoveryFence = traceValid &&
+    ((recoveryPending && tracePacket.entries(0).instruction.stid ===
+      recoveryPlan.trigger.stid) ||
+      (prepareFire && tracePacket.entries(0).instruction.stid ===
+        io.recovery.prepare.bits.trigger.stid) ||
+      (applyHit && tracePacket.entries(0).instruction.stid ===
+        io.recovery.apply.bits.trigger.stid))
+  io.trace.valid := traceValid && !traceRecoveryFence
   io.trace.bits := tracePacket
 
   val traceFires = io.trace.fire
@@ -159,7 +173,11 @@ class CTU(val p: CoreParams) extends Module {
     tracePacket.entries(0).payload := currentDecode.rowCount
   }
 
-  val inputBlocked = recoveryPending || prepareFire || applyHit || abortHit
+  val inputStid = io.fromIfu.bits.entries(0).identity.stid
+  val inputBlocked =
+    (recoveryPending && inputStid === recoveryPlan.trigger.stid) ||
+      (prepareFire && inputStid === io.recovery.prepare.bits.trigger.stid) ||
+      (applyHit && inputStid === io.recovery.apply.bits.trigger.stid)
   io.fromIfu.ready := !packetValid && !inputBlocked
   when(io.fromIfu.fire) {
     packetValid := io.fromIfu.bits.count.orR

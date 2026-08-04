@@ -59,6 +59,7 @@ PUBLIC_MODULES = {
     "OOO": "chisel/src/main/scala/linxcore/ooo/OOO.scala",
     "IEX": "chisel/src/main/scala/linxcore/iex/IEX.scala",
     "LSU": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
+    "DTU": "chisel/src/main/scala/linxcore/dtu/DTU.scala",
 }
 
 # Closed inventory: the manifest may report these decisions but cannot invent,
@@ -188,8 +189,8 @@ STATE_DOMAINS: dict[str, tuple[str, str, str]] = {
     ),
     "trace_debug_performance_observation": (
         "DTU",
-        "CommitTraceMonitor",
-        "chisel/src/main/scala/linxcore/commit/CommitTraceMonitor.scala",
+        "DTU",
+        "chisel/src/main/scala/linxcore/dtu/DTU.scala",
     ),
 }
 
@@ -274,8 +275,10 @@ DOMAIN_MECHANISMS: dict[str, tuple[tuple[str, str], ...]] = {
         ("LSU", "chisel/src/main/scala/linxcore/lsu/LSU.scala"),
     ),
     "trace_debug_performance_observation": (
-        ("CommitTraceMonitor", "chisel/src/main/scala/linxcore/commit/CommitTraceMonitor.scala"),
-        ("TraceEvent", "chisel/src/main/scala/linxcore/top/interface/DTU.scala"),
+        ("DTU", "chisel/src/main/scala/linxcore/dtu/DTU.scala"),
+        ("DebugControl", "chisel/src/main/scala/linxcore/dtu/DebugControl.scala"),
+        ("TraceExport", "chisel/src/main/scala/linxcore/dtu/TraceExport.scala"),
+        ("PerformanceCounters", "chisel/src/main/scala/linxcore/dtu/PerformanceCounters.scala"),
     ),
 }
 

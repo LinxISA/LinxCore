@@ -217,6 +217,8 @@ class OOO(val p: CoreParams) extends Module {
   io.commit <> d3s1.io.commit
   io.trap <> d3s1.io.trap
   d3s1.io.interrupt <> io.interrupt
+  d3s1.io.debugRequest <> io.debugRequest
+  io.debugResponse <> d3s1.io.debugResponse
   io.recoveryToIfu <> d3s1.io.recoveryToIfu
   io.recoveryToCtu <> d3s1.io.recoveryToCtu
   io.recoveryToLsu <> d3s1.io.recoveryToLsu

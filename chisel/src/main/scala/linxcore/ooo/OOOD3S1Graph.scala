@@ -24,6 +24,8 @@ class OOOD3S1GraphIO(val p: CoreParams) extends Bundle {
   val commit = Decoupled(new CommitTxn(p))
   val trap = Decoupled(new TrapEvent(p))
   val interrupt = Flipped(Valid(new InterruptRequest(p)))
+  val debugRequest = Flipped(Decoupled(new DebugRequest(p)))
+  val debugResponse = Decoupled(new DebugResponse(p))
   val recoveryToD1 = new RecoveryTargetIO(p)
   val recoveryToIfu = new RecoveryTargetIO(p)
   val recoveryToCtu = new RecoveryTargetIO(p)
@@ -308,6 +310,8 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
       io.interrupt.bits.valid && io.interrupt.bits.stid === stid.U
   }
   commitControl.io.interrupts := interrupts
+  commitControl.io.debugRequest <> io.debugRequest
+  io.debugResponse <> commitControl.io.debugResponse
   commitControl.io.interruptBoundaryValid := rob.io.commit.bits.headValid
   commitControl.io.interruptBoundary := rob.io.commit.bits.head
   for (stid <- 0 until p.ooo.stidCount) {

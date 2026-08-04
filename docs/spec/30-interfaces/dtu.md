@@ -11,6 +11,7 @@ or recovery state.
 <!-- ndf: kind=arch level=must layer=L2 status=stable since=0.1 refines=IFC-DTU-001 -->
 
 `TraceEvent` retains source, event kind, instruction identity, ROB identity,
-PC, opcode, and payload. `DTUIO` receives a parameterized trace prefix and
-emits an explicit debug request; TOP routes any resulting control request to
-the owning box.
+PC, opcode, and payload. `DTUIO` receives parameterized trace and commit
+observations plus an external debug request, exports trace and performance
+counters, and transports the debug request and matching response through a
+typed owner-facing control channel. TOP routes that control channel to OOO.

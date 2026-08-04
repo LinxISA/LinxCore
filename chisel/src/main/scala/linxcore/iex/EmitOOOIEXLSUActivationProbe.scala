@@ -2,6 +2,7 @@ package linxcore.iex
 
 import chisel3._
 import chisel3.util.{Arbiter, Decoupled, DecoupledIO, Queue}
+import linxcore.dtu.DTU
 import linxcore.lsu.LSU
 import linxcore.ooo.OOO
 import linxcore.params.{CoreParams, ParamProfiles}
@@ -154,6 +155,7 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   private val ooo = Module(new OOO(p))
   private val iex = Module(new IEX(p))
   private val lsu = Module(new LSU(p))
+  private val dtu = Module(new DTU(p))
 
   private def queued[T <: Data](source: DecoupledIO[T],
       sink: DecoupledIO[T]): Unit = {
@@ -245,6 +247,16 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   ooo.io.trap.ready := io.trapReady
   ooo.io.interrupt.valid := false.B
   ooo.io.interrupt.bits := 0.U.asTypeOf(ooo.io.interrupt.bits)
+  dtu.io.debugRequest.valid := false.B
+  dtu.io.debugRequest.bits := 0.U.asTypeOf(dtu.io.debugRequest.bits)
+  ooo.io.debugRequest <> dtu.io.controlRequest
+  dtu.io.controlResponse <> ooo.io.debugResponse
+  dtu.io.debugResponse.ready := true.B
+  dtu.io.commitIn.valid := ooo.io.commit.fire
+  dtu.io.commitIn.bits := ooo.io.commit.bits
+  dtu.io.traceIn.valid := ooo.io.trace.fire
+  dtu.io.traceIn.bits := ooo.io.trace.bits
+  dtu.io.traceOut.ready := true.B
   ooo.io.trace.ready := io.oooTraceReady
   ooo.io.systemIssue.foreach(_.ready := io.systemReady)
   for (target <- Seq(ooo.io.recoveryToIfu, ooo.io.recoveryToCtu)) {
