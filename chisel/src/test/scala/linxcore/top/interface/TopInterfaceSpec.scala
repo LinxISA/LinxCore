@@ -146,10 +146,14 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(memory.attemptGeneration.getWidth == p.memoryAttemptGenerationWidth)
   }
 
-  test("native BID width follows the configured per-STID BROB slot count") {
+  test("native BID width follows the configured per-STID BROB identity count") {
     val base = ParamProfiles.W4
-    val p64 = base.copy(ooo = base.ooo.copy(brobEntriesPerStid = 64))
-    val p512 = base.copy(ooo = base.ooo.copy(brobEntriesPerStid = 512))
+    val p64 = base.copy(ooo = base.ooo.copy(
+      brobEntriesPerStid = 64,
+      brobIdentityEntriesPerStid = 64))
+    val p512 = base.copy(ooo = base.ooo.copy(
+      brobEntriesPerStid = 512,
+      brobIdentityEntriesPerStid = 512))
 
     assert(new RobIdentity(p64).bid.getWidth == 6)
     assert(new RobIdentity(p512).bid.getWidth == 9)
@@ -314,7 +318,7 @@ class TopInterfaceSpec extends AnyFunSuite {
         assert(identity.elements.keySet == expectedMemoryFields)
         assert(identity.rob.elements.keySet == expectedRobFields)
         assert(identity.transaction.elements.keySet == Set("value", "generation"))
-        assert(identity.rob.ridSlot.getWidth == 5)
+        assert(identity.rob.ridSlot.getWidth == p.ooo.ridSlotWidth)
         assert(identity.rob.ridGeneration.getWidth == 7)
         assert(identity.rob.residentGeneration.getWidth == 9)
         assert(identity.transaction.value.getWidth == 41)
@@ -469,8 +473,13 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(dtu.traceIn.bits.entries.length == p.dtu.traceWidth)
     assert(top.instructionMemoryRequest.bits.identity.generation.getWidth ==
       p.memoryTransactionGenerationWidth)
-    assert(top.dataMemoryResponse.bits.identity.generation.getWidth ==
+    assert(top.dataMemoryResponse.head.bits.identity.generation.getWidth ==
       p.memoryTransactionGenerationWidth)
+    assert(top.dataMemoryRequest.length ==
+      p.lsu.loadPipes + p.lsu.storePipes)
+    assert(top.dataMemoryResponse.length == top.dataMemoryRequest.length)
+    assert(top.instructionMemoryRequest.bits.size.getWidth == MemorySize.getWidth)
+    assert(MemorySize.Bytes64.litValue == 6)
   }
 
   test("a retained decoupled interface payload remains stable under backpressure") {

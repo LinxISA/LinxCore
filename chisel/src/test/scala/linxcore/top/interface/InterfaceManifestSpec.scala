@@ -46,6 +46,15 @@ class InterfaceManifestSpec extends AnyFunSuite {
       "target_to_ooo_recovery_prepared",
       "ooo_recovery_apply",
       "ooo_recovery_abort"))
+
+    val external = manifest.profiles.head.endpoints
+      .filter(_.contractId.startsWith("IFC-TOP-EXT-"))
+    assert(external.exists(_.name == "top_io"))
+    assert(external.flatMap(_.ports).exists(port =>
+      port.name == "instructionMemoryRequest_bits_size" &&
+        port.width == MemorySize.getWidth))
+    assert(external.flatMap(_.ports).exists(port =>
+      port.name.startsWith("dataMemoryRequest_3_bits_")))
   }
 
   test("backend profiles freeze lane multiplicity canonical payload names and identities") {

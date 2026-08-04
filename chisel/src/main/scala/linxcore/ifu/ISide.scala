@@ -142,7 +142,7 @@ private class ISideMemoryAdapter(
     kind === ISideMemoryKind.Translation,
     translationRequest.vpn << pageOffsetBits,
     lineRequest.linePa + beat * beatBytes.U)
-  io.memoryRequest.bits.sizeBytes := beatBytes.U
+  io.memoryRequest.bits.size := MemorySize.fromBytes(beatBytes.U)
   io.memoryRequest.bits.instructionSide := true.B
 
   val requestFire = io.memoryRequest.fire

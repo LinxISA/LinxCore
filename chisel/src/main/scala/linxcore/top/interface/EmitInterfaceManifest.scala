@@ -35,6 +35,8 @@ object InterfaceManifest {
       payload: CoreParams => Data)
 
   private val endpointDefinitions = Seq(
+    EndpointDefinition("top_io", "IFC-TOP-EXT-002", "Platform", "TOP",
+      _ => 1, p => new TOPIO(p)),
     EndpointDefinition("ifu_to_ctu", "IFC-IFU-CTU-001", "IFU", "CTU",
       _.widths.fetchWidth, p => new FetchedPacket(p)),
     EndpointDefinition("ctu_to_ooo", "IFC-CTU-OOO-001", "CTU", "OOO",

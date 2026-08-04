@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import linxcore.params.{MemoryAccessAttributes, PhysicalMemoryRegion,
   SimulationParamProfiles}
-import linxcore.top.interface.MemoryAccessKind
+import linxcore.top.interface.{MemoryAccessKind, MemorySize}
 import org.scalatest.funsuite.AnyFunSuite
 
 trait LSUMemoryTestSupport extends ChiselSim {
@@ -108,7 +108,7 @@ class LSUMemorySpec extends AnyFunSuite with LSUMemoryTestSupport {
       }
       assert(cycles < 16, "DTLB miss did not publish its retained page request")
       request.bits.address.expect(BigInt("8000000000001000", 16).U)
-      request.bits.sizeBytes.expect((p.dataWidth / 8).U)
+      request.bits.size.expect(MemorySize.Bytes8)
       val requestId = request.bits.identity.value.peek().litValue
       val requestGeneration = request.bits.identity.generation.peek().litValue
       dut.clock.step()

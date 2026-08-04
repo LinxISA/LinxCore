@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.PriorityEncoder
+import chisel3.util.{DecoupledIO, PriorityEncoder, Queue}
 import linxcore.params.CoreParams
 import linxcore.top.interface._
 
@@ -213,7 +213,48 @@ class OOO(val p: CoreParams) extends Module {
   d1d2.io.ridTailGeneration := d3s1.io.ridTailGeneration
   d3s1.io.fromD2 <> d1d2.io.d2
   d1d2.io.recovery <> d3s1.io.recoveryToD1
-  io.iex <> d3s1.io.iex
+  private def retainedBoundary[T <: Data](source: DecoupledIO[T],
+      sink: DecoupledIO[T]): Unit = {
+    val boundary = Module(new Queue(chiselTypeOf(source.bits), 1,
+      pipe = false, flow = false))
+    boundary.io.enq <> source
+    sink <> boundary.io.deq
+  }
+  for (lane <- io.iex.aluDispatch.indices) {
+    retainedBoundary(d3s1.io.iex.aluDispatch(lane), io.iex.aluDispatch(lane))
+  }
+  for (lane <- io.iex.bruDispatch.indices) {
+    retainedBoundary(d3s1.io.iex.bruDispatch(lane), io.iex.bruDispatch(lane))
+  }
+  for (lane <- io.iex.aguDispatch.indices) {
+    retainedBoundary(d3s1.io.iex.aguDispatch(lane), io.iex.aguDispatch(lane))
+  }
+  for (lane <- io.iex.storeDispatch.indices) {
+    retainedBoundary(d3s1.io.iex.storeDispatch(lane),
+      io.iex.storeDispatch(lane))
+  }
+  for (lane <- io.iex.systemDispatch.indices) {
+    retainedBoundary(d3s1.io.iex.systemDispatch(lane),
+      io.iex.systemDispatch(lane))
+  }
+  for (lane <- io.iex.cmdDispatch.indices) {
+    retainedBoundary(d3s1.io.iex.cmdDispatch(lane), io.iex.cmdDispatch(lane))
+  }
+  io.iex.allocationClear := d3s1.io.iex.allocationClear
+  retainedBoundary(d3s1.io.iex.fastWriteback, io.iex.fastWriteback)
+  retainedBoundary(d3s1.io.iex.fastWakeup, io.iex.fastWakeup)
+  d3s1.io.iex.pcBufferReadAddress := io.iex.pcBufferReadAddress
+  io.iex.pcBufferReadPcBase := d3s1.io.iex.pcBufferReadPcBase
+  d3s1.io.iex.robNoflushReady <> io.iex.robNoflushReady
+  retainedBoundary(d3s1.io.iex.robNoflush, io.iex.robNoflush)
+  for (lane <- io.iex.robResolve.indices) {
+    d3s1.io.iex.robResolve(lane) <> io.iex.robResolve(lane)
+  }
+  for (lane <- io.iex.systemIssue.indices) {
+    d3s1.io.iex.systemIssue(lane) <> io.iex.systemIssue(lane)
+  }
+  d3s1.io.iex.recoveryEvent <> io.iex.recoveryEvent
+  d3s1.io.iex.recovery <> io.iex.recovery
   io.commit <> d3s1.io.commit
   io.trap <> d3s1.io.trap
   d3s1.io.interrupt <> io.interrupt

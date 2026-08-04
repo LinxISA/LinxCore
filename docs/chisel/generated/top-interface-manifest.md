@@ -4,6 +4,7 @@ This file is generated from the canonical Scala Bundle types. Do not edit it by 
 
 | Profile | Endpoint | Contract | Producer | Consumer | Lanes | Payload | Leaf ports | Payload bits |
 |---|---|---|---|---|---:|---|---:|---:|
+| W2 | `top_io` | [[IFC-TOP-EXT-002]] | Platform | TOP | 1 | `TOPIO` | 532 | 12912 |
 | W2 | `ifu_to_ctu` | [[IFC-IFU-CTU-001]] | IFU | CTU | 2 | `FetchedPacket` | 43 | 1214 |
 | W2 | `ctu_to_ooo` | [[IFC-CTU-OOO-001]] | CTU | OOO | 2 | `D1Packet` | 53 | 1400 |
 | W2 | `ooo_to_iex_alu` | [[IFC-OOO-IEX-001]] | OOO | IEX | 2 | `DispatchTxn` | 255 | 2358 |
@@ -45,10 +46,11 @@ This file is generated from the canonical Scala Bundle types. Do not edit it by 
 | W2 | `dtu_to_external_debug_response` | [[IFC-DTU-001]] | DTU | External Debug | 1 | `DebugResponse` | 4 | 130 |
 | W2 | `dtu_trace_export` | [[IFC-DTU-001]] | DTU | External Trace | 2 | `TracePacket` | 41 | 750 |
 | W2 | `dtu_performance_counter` | [[IFC-DTU-001]] | DTU | External Counter | 32 | `UInt` | 1 | 64 |
-| W2 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 226 |
+| W2 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 225 |
 | W2 | `instruction_memory_response` | [[IFC-MEMORY-001]] | Memory | IFU | 1 | `MemoryResponseTxn` | 13 | 759 |
-| W2 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 226 |
+| W2 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 225 |
 | W2 | `data_memory_response` | [[IFC-MEMORY-001]] | Memory | LSU | 4 | `MemoryResponseTxn` | 13 | 759 |
+| W4 | `top_io` | [[IFC-TOP-EXT-002]] | Platform | TOP | 1 | `TOPIO` | 730 | 15978 |
 | W4 | `ifu_to_ctu` | [[IFC-IFU-CTU-001]] | IFU | CTU | 4 | `FetchedPacket` | 85 | 2427 |
 | W4 | `ctu_to_ooo` | [[IFC-CTU-OOO-001]] | CTU | OOO | 4 | `D1Packet` | 105 | 2799 |
 | W4 | `ooo_to_iex_alu` | [[IFC-OOO-IEX-001]] | OOO | IEX | 2 | `DispatchTxn` | 255 | 2367 |
@@ -90,10 +92,11 @@ This file is generated from the canonical Scala Bundle types. Do not edit it by 
 | W4 | `dtu_to_external_debug_response` | [[IFC-DTU-001]] | DTU | External Debug | 1 | `DebugResponse` | 4 | 130 |
 | W4 | `dtu_trace_export` | [[IFC-DTU-001]] | DTU | External Trace | 4 | `TracePacket` | 81 | 1499 |
 | W4 | `dtu_performance_counter` | [[IFC-DTU-001]] | DTU | External Counter | 32 | `UInt` | 1 | 64 |
-| W4 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 226 |
+| W4 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 225 |
 | W4 | `instruction_memory_response` | [[IFC-MEMORY-001]] | Memory | IFU | 1 | `MemoryResponseTxn` | 13 | 759 |
-| W4 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 226 |
+| W4 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 225 |
 | W4 | `data_memory_response` | [[IFC-MEMORY-001]] | Memory | LSU | 4 | `MemoryResponseTxn` | 13 | 759 |
+| W6 | `top_io` | [[IFC-TOP-EXT-002]] | Platform | TOP | 1 | `TOPIO` | 928 | 19042 |
 | W6 | `ifu_to_ctu` | [[IFC-IFU-CTU-001]] | IFU | CTU | 6 | `FetchedPacket` | 127 | 3639 |
 | W6 | `ctu_to_ooo` | [[IFC-CTU-OOO-001]] | CTU | OOO | 6 | `D1Packet` | 157 | 4197 |
 | W6 | `ooo_to_iex_alu` | [[IFC-OOO-IEX-001]] | OOO | IEX | 2 | `DispatchTxn` | 255 | 2367 |
@@ -135,10 +138,11 @@ This file is generated from the canonical Scala Bundle types. Do not edit it by 
 | W6 | `dtu_to_external_debug_response` | [[IFC-DTU-001]] | DTU | External Debug | 1 | `DebugResponse` | 4 | 130 |
 | W6 | `dtu_trace_export` | [[IFC-DTU-001]] | DTU | External Trace | 6 | `TracePacket` | 121 | 2247 |
 | W6 | `dtu_performance_counter` | [[IFC-DTU-001]] | DTU | External Counter | 32 | `UInt` | 1 | 64 |
-| W6 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 226 |
+| W6 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 225 |
 | W6 | `instruction_memory_response` | [[IFC-MEMORY-001]] | Memory | IFU | 1 | `MemoryResponseTxn` | 13 | 759 |
-| W6 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 226 |
+| W6 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 225 |
 | W6 | `data_memory_response` | [[IFC-MEMORY-001]] | Memory | LSU | 4 | `MemoryResponseTxn` | 13 | 759 |
+| W8 | `top_io` | [[IFC-TOP-EXT-002]] | Platform | TOP | 1 | `TOPIO` | 1126 | 22108 |
 | W8 | `ifu_to_ctu` | [[IFC-IFU-CTU-001]] | IFU | CTU | 8 | `FetchedPacket` | 169 | 4852 |
 | W8 | `ctu_to_ooo` | [[IFC-CTU-OOO-001]] | CTU | OOO | 8 | `D1Packet` | 209 | 5596 |
 | W8 | `ooo_to_iex_alu` | [[IFC-OOO-IEX-001]] | OOO | IEX | 2 | `DispatchTxn` | 255 | 2376 |
@@ -180,7 +184,7 @@ This file is generated from the canonical Scala Bundle types. Do not edit it by 
 | W8 | `dtu_to_external_debug_response` | [[IFC-DTU-001]] | DTU | External Debug | 1 | `DebugResponse` | 4 | 130 |
 | W8 | `dtu_trace_export` | [[IFC-DTU-001]] | DTU | External Trace | 8 | `TracePacket` | 161 | 2996 |
 | W8 | `dtu_performance_counter` | [[IFC-DTU-001]] | DTU | External Counter | 32 | `UInt` | 1 | 64 |
-| W8 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 226 |
+| W8 | `instruction_memory_request` | [[IFC-MEMORY-001]] | IFU | Memory | 1 | `MemoryRequestTxn` | 9 | 225 |
 | W8 | `instruction_memory_response` | [[IFC-MEMORY-001]] | Memory | IFU | 1 | `MemoryResponseTxn` | 13 | 759 |
-| W8 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 226 |
+| W8 | `data_memory_request` | [[IFC-MEMORY-001]] | LSU | Memory | 4 | `MemoryRequestTxn` | 9 | 225 |
 | W8 | `data_memory_response` | [[IFC-MEMORY-001]] | Memory | LSU | 4 | `MemoryResponseTxn` | 13 | 759 |

@@ -11,7 +11,7 @@ import linxcore.recovery.{ExecEngineType, FlushType}
 import linxcore.top.interface.{LSUIO, OperandKind, RecoveryPhase,
   MemoryAccessKind, MemoryCommand, RecoveryCause, RecoveryPlan,
   RecoveryPlanContract, StoreMemoryClass, LSUMemoryFaultCause,
-  LSUMaintenanceCommand}
+  LSUMaintenanceCommand, MemorySize}
 
 /** Public state-free composition boundary for the canonical LSU graph.
   *
@@ -448,7 +448,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     MemoryAccessKind.Device, MemoryAccessKind.Data)
   serializedMemory.bits.address := backend.io.serializedRequest.bits.fragment.addr
   serializedMemory.bits.data := backend.io.serializedRequest.bits.fragment.data
-  serializedMemory.bits.sizeBytes := backend.io.serializedRequest.bits.fragment.size
+  serializedMemory.bits.size := MemorySize.fromBytes(
+    backend.io.serializedRequest.bits.fragment.size)
   private val publicDataBytes = p.dataWidth / 8
   private val serializedByteOffsetWidth = log2Ceil(publicDataBytes)
   private val serializedByteCount =
@@ -470,7 +471,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   ownershipMemory.bits.command := MemoryCommand.AcquireWrite
   ownershipMemory.bits.accessKind := MemoryAccessKind.Data
   ownershipMemory.bits.address := backend.io.l2Request.lineAddr
-  ownershipMemory.bits.sizeBytes := backend.io.l2Request.size
+  ownershipMemory.bits.size := MemorySize.fromBytes(backend.io.l2Request.size)
   backend.io.l2RequestReady := ownershipMemory.ready
 
   val serializedResponse = io.memoryResponse(p.lsu.loadPipes)
@@ -910,7 +911,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
         p.physicalAddressWidth - 8).andR,
       MemoryAccessKind.Device, MemoryAccessKind.Data)
     dataRequest.address := load.io.missRequest.lineAddr
-    dataRequest.sizeBytes := scalarLsu.lineBytes.U
+    dataRequest.size := MemorySize.fromBytes(scalarLsu.lineBytes.U)
     val translationValid = if (translationSelected)
       translation.io.memoryRequest.valid else false.B
     val dataValid = load.io.missRequestValid && missLane === lane.U

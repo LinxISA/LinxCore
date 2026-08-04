@@ -305,11 +305,9 @@ EMITTER_INVENTORY: dict[tuple[str, str], str] = {
     ("linxcore.frontend.EmitIfuBackendFeedbackBridgeProbe", "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala"): "probe",
     ("linxcore.top.EmitIfuLineMemoryBridgeProbe", "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridgeProbe.scala"): "probe",
     ("linxcore.top.EmitLinxCoreCompositionProbe", "chisel/src/main/scala/linxcore/top/LinxCoreCompositionProbe.scala"): "probe",
-    ("linxcore.top.EmitLinxCoreFrontendFetchTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchTraceTop.scala"): "legacy-top",
-    ("linxcore.top.EmitLinxCoreFrontendTraceTop", "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala"): "legacy-top",
+    ("linxcore.top.EmitTOP", "chisel/src/main/scala/linxcore/top/EmitTOP.scala"): "production",
     ("linxcore.frontend.EmitLinxCoreIfuThroughputProbe", "chisel/src/main/scala/linxcore/frontend/LinxCoreIfuThroughputProbe.scala"): "probe",
     ("linxcore.lsu.EmitLoadMissQueueProbe", "chisel/src/main/scala/linxcore/lsu/LoadMissQueueProbe.scala"): "probe",
-    ("linxcore.iex.EmitOOOIEXLSUActivationProbe", "chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"): "fixture",
     ("linxcore.lsu.EmitLoadRefillTransportProbe", "chisel/src/main/scala/linxcore/lsu/LoadRefillTransportProbe.scala"): "probe",
     ("linxcore.recovery.EmitRecoveryClassMergeProbe", "chisel/src/main/scala/linxcore/recovery/RecoveryClassMergeProbe.scala"): "probe",
     ("linxcore.recovery.EmitRecoveryCleanupROBProbe", "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala"): "probe",
@@ -1496,7 +1494,8 @@ def validate_entry_points(
             contained_path(root, path, f"{classification} emitter {name}", errors)
             if isinstance(name, str) and isinstance(path, str):
                 registrations[(name, path)] = entry.get("classification", "")
-                if classification == "production" and (name, path) in EMITTER_INVENTORY:
+                if (classification == "production" and
+                        EMITTER_INVENTORY.get((name, path)) != "production"):
                     errors.append(
                         f"checker-owned non-production emitter cannot be promoted: {name}"
                     )

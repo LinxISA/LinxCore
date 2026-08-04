@@ -27,10 +27,9 @@ not a compatibility owner.
 
 ## Entry-point classification
 
-There is no production `TOP` emitter yet. Every retained `*Probe` is a
+`linxcore.top.EmitTOP` is the sole active core emitter. Every retained `*Probe` is a
 verification entry point and cannot promote an owner.
-`EmitD1DecodeRenameROBIngress` and `EmitOOOIEXLSUActivationProbe` are retained
-standalone fixtures. Task 18 must introduce the sole production `TOP` emitter.
+`EmitD1DecodeRenameROBIngress` remains a standalone fixture.
 
 ## Machine-readable manifest
 
@@ -72,7 +71,9 @@ evidence.
     "interface_manifest": "docs/chisel/generated/top-interface-manifest.json"
   },
   "entry_points": {
-    "production": [],
+    "production": [
+      {"name": "linxcore.top.EmitTOP", "path": "chisel/src/main/scala/linxcore/top/EmitTOP.scala", "classification": "production", "root_symbol": "TOP", "boxes": ["IFU", "CTU", "OOO", "IEX", "LSU", "DTU"], "production_evidence": [".superpowers/sdd/2026-07-31-core-mainline-restructure/task-18-report.md"]}
+    ],
     "non_production": [
       {"name": "linxcore.bctrl.EmitBrobOrderStateProbe", "path": "chisel/src/main/scala/linxcore/bctrl/BrobOrderStateProbe.scala", "classification": "probe"},
       {"name": "linxcore.bctrl.EmitBrobStoreCountPublisherProbe", "path": "chisel/src/main/scala/linxcore/bctrl/BrobStoreCountPublisherProbe.scala", "classification": "probe"},
@@ -84,11 +85,8 @@ evidence.
       {"name": "linxcore.frontend.EmitIfuBackendFeedbackBridgeProbe", "path": "chisel/src/main/scala/linxcore/frontend/IfuBackendFeedbackBridgeProbe.scala", "classification": "probe"},
       {"name": "linxcore.top.EmitIfuLineMemoryBridgeProbe", "path": "chisel/src/main/scala/linxcore/top/IfuLineMemoryBridgeProbe.scala", "classification": "probe"},
       {"name": "linxcore.top.EmitLinxCoreCompositionProbe", "path": "chisel/src/main/scala/linxcore/top/LinxCoreCompositionProbe.scala", "classification": "probe"},
-      {"name": "linxcore.top.EmitLinxCoreFrontendFetchTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchTraceTop.scala", "classification": "legacy-top"},
-      {"name": "linxcore.top.EmitLinxCoreFrontendTraceTop", "path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala", "classification": "legacy-top"},
       {"name": "linxcore.frontend.EmitLinxCoreIfuThroughputProbe", "path": "chisel/src/main/scala/linxcore/frontend/LinxCoreIfuThroughputProbe.scala", "classification": "probe"},
       {"name": "linxcore.lsu.EmitLoadMissQueueProbe", "path": "chisel/src/main/scala/linxcore/lsu/LoadMissQueueProbe.scala", "classification": "probe"},
-      {"name": "linxcore.iex.EmitOOOIEXLSUActivationProbe", "path": "chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala", "classification": "fixture"},
       {"name": "linxcore.lsu.EmitLoadRefillTransportProbe", "path": "chisel/src/main/scala/linxcore/lsu/LoadRefillTransportProbe.scala", "classification": "probe"},
       {"name": "linxcore.recovery.EmitRecoveryClassMergeProbe", "path": "chisel/src/main/scala/linxcore/recovery/RecoveryClassMergeProbe.scala", "classification": "probe"},
       {"name": "linxcore.recovery.EmitRecoveryCleanupROBProbe", "path": "chisel/src/main/scala/linxcore/recovery/RecoveryCleanupROBProbe.scala", "classification": "probe"},
@@ -184,7 +182,7 @@ evidence.
       "verification_fixtures": ["chisel/src/test/scala/linxcore/ifu/IFUPredictionSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/ifu/IFUPredictionSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,
-      "deletion_targets": [{"path": "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala", "symbol": "linxcore.top.LinxCoreFrontendTraceTop", "status": "planned-active", "active_callers": ["chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala"]}],
+      "deletion_targets": [],
       "adapters": []
     },
     {
@@ -429,7 +427,7 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
-      "active_callers": ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
+      "active_callers": ["chisel/src/main/scala/linxcore/top/TOP.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "chisel/src/test/scala/linxcore/lsu/LoadMissQueueSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/lsu/LoadMissQueueSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 15,
@@ -573,7 +571,7 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/lsu/LSU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
-      "active_callers": ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
+      "active_callers": ["chisel/src/main/scala/linxcore/top/TOP.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUMemorySpec.scala", "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSUIntegrationSpec.scala", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 16,
@@ -589,7 +587,7 @@ evidence.
       "public_box_status": "module",
       "public_box_file": "chisel/src/main/scala/linxcore/dtu/DTU.scala",
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/DTUIO.scala",
-      "active_callers": ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
+      "active_callers": ["chisel/src/main/scala/linxcore/top/TOP.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "chisel/src/test/scala/linxcore/iex/DTUActivationTraceSpec.scala", "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala"],
       "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/dtu/DTUSpec.scala", "case": "trace observation never backpressures a stalled exporter", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/iex/DTUActivationTraceSpec.scala", "case": "stalled external trace export cannot suppress terminal or commit progress", "level": "L3", "status": "public-box-verified"}, {"fixture": "chisel/src/test/scala/linxcore/top/RecoveryIntegrationSpec.scala", "case": "OOO accepts halt only at a commit boundary and resume releases it", "level": "L3", "status": "public-box-verified"}],
       "cutover_task": 17,

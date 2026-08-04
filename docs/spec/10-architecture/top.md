@@ -8,6 +8,10 @@ adapt external memory, interrupt, reset, and debug ports. TOP MUST NOT own ROB
 entries, rename maps, issue queues, cache policy, age selection, commit policy,
 or recovery arbitration.
 
+The callable `TOP` contains exactly one IFU, CTU, OOO, IEX, LSU, and DTU in one
+clock/reset domain. It contains no `Reg`, `Mem`, or `Queue`, and IEX has no
+direct control path to IFU. Recovery reaches IFU only from its OOO owner.
+
 ## Box interfaces have one source of truth {#ARC-TOP-011}
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 -->
 

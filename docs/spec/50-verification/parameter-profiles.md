@@ -25,10 +25,18 @@ applicable width, identity, ROB, rename, queue and pipe sizing without
 introducing a stateful hardware owner or alternate public boundary. The
 central W8 profile MUST remain constructible through each active projection.
 
+## LSU external-size and identity check {#VER-PRM-005}
+<!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=PRM-LSU-SIZING-001 -->
+
+`TopInterfaceSpec`, `InterfaceManifestSpec`, and `LSUMemorySpec` MUST jointly
+check independent LSU lane/capacity/identity widths and the typed external
+memory-size encoding, including the exact `Bytes64=6` cache-line value.
+
 ## Directed-simulation capacity profiles
 
-`SimulationParamProfiles` is test-scope configuration for behavior tests that
-do not need the full storage window. Its W2/W4/W6/W8 variants preserve the
+`SimulationParamProfiles` is bounded configuration for directed behavior,
+elaboration, lint, and harness port validation that do not need the full
+storage window. Its W2/W4/W6/W8 variants preserve the
 selected fetch, CTU, decode, rename, D3, dispatch, issue, and retire widths, the
 configured execution and LSU pipe counts, and every fixed transaction or
 generation width. They may reduce local ROB, BROB, PC Buffer, rename, IQ, and LSU
@@ -49,6 +57,7 @@ accepted by the current OOO ordinary-group/CTU recipe invariant. This keeps
 width and split-store behavior observable without reproducing the
 full-capacity RTL volume in every behavioral simulation.
 
-These profiles are not interface-width, full-capacity, generated-RTL, lint,
-activation, workload or final-closure evidence. Those gates continue to use
+These profiles are not full-capacity, timing, performance, or workload
+evidence. Their generated RTL may prove bounded topology and harness
+connectivity only; main-profile evidence continues to use
 `ParamProfiles.W2/W4/W6/W8`.

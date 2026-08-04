@@ -3,9 +3,7 @@ package linxcore.params
 /** Capacity-bounded profiles for directed simulation only.
   *
   * Principal pipeline widths and fixed identity domains are inherited from
-  * the corresponding main profile.  Only local storage capacities are
-  * bounded, so these profiles must not be used as interface-width or
-  * full-capacity closure evidence.
+  * the corresponding main profile. Only local storage capacities are bounded.
   */
 object SimulationParamProfiles {
   private def nextPowerOfTwo(value: Int): Int =
@@ -24,7 +22,7 @@ object SimulationParamProfiles {
 
     main.copy(
       ifu = main.ifu.copy(
-        fetchBufferEntries = prefixCapacity,
+        fetchBufferEntries = math.max(4, prefixCapacity),
         predictionCheckpointEntries = prefixCapacity),
       ctu = main.ctu.copy(
         instructionBufferEntries = prefixCapacity,

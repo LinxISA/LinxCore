@@ -140,7 +140,7 @@ class ProductionOwnerManifestTest(unittest.TestCase):
         self.assertEqual(row["public_box_status"], "module")
         self.assertEqual(
             row["active_callers"],
-            ["chisel/src/main/scala/linxcore/iex/EmitOOOIEXLSUActivationProbe.scala"],
+            ["chisel/src/main/scala/linxcore/top/TOP.scala"],
         )
 
         result = self._run(manifest)

@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util.{Cat, Decoupled, PopCount, log2Ceil}
 import linxcore.params.CoreParams
 import linxcore.top.interface.{LoadIssueTxn, MemoryAccessKind, MemoryCommand,
-  MemoryRequestTxn, MemoryResponseTxn, StoreAddressTxn}
+  MemoryRequestTxn, MemoryResponseTxn, MemorySize, StoreAddressTxn}
 
 class DSideTranslationRequest(val p: CoreParams) extends Bundle {
   val isStore = Bool()
@@ -165,7 +165,7 @@ class DSideTranslation(
   io.memoryRequest.bits.command := MemoryCommand.Read
   io.memoryRequest.bits.accessKind := MemoryAccessKind.Data
   io.memoryRequest.bits.address := activeVpn << pageOffsetWidth
-  io.memoryRequest.bits.sizeBytes := (p.dataWidth / 8).U
+  io.memoryRequest.bits.size := MemorySize.fromBytes((p.dataWidth / 8).U)
   io.memoryRequest.bits.instructionSide := false.B
 
   when(io.memoryRequest.fire) {

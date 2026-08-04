@@ -32,7 +32,7 @@ side-effect acceptance, and the matching no-value `RobResolveTxn` fire
 atomically and exactly once.
 
 ## TOP external CMD conformance {#VER-IFC-TOP-EXT-001}
-<!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=IFC-TOP-EXT-001 -->
+<!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=IFC-TOP-EXT-001,IFC-TOP-EXT-002 -->
 
 `TopInterfaceSpec` shall elaborate the `CmdIssueTxn` TOP endpoint in W2, W4,
 W6, and W8, hold its complete identity and payload stable under backpressure,
@@ -46,6 +46,10 @@ completion endpoint.
 `TopInterfaceSpec` shall check observational trace connectivity and
 generation-qualified instruction/data memory traffic without a DTU-owned
 architectural-control state.
+
+The same tests MUST prove that external `MemorySize.Bytes64` elaborates as the
+three-bit value six, every W4 LSU request/response lane is projected, and no
+four-bit byte-count field can truncate a cache-line request.
 
 ## Generated interface projection {#VER-IFC-MANIFEST-001}
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 depends-on=MEC-IFU-CTU-001,MEC-CTU-OOO-001,MEC-OOO-IEX-001,MEC-IEX-LSU-001,MEC-RECOVERY-001,MEC-COMMIT-001,MEC-DTU-001,MEC-MEMORY-001,MEC-TOP-EXT-001 -->

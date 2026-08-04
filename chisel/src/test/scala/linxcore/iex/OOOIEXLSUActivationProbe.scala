@@ -528,10 +528,3 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   io.lastMemoryGeneration := lastMemoryGeneration
   io.lastMemoryAddress := lastMemoryAddress
 }
-
-object EmitOOOIEXLSUActivationProbe extends App {
-  circt.stage.ChiselStage.emitSystemVerilogFile(
-    new OOOIEXLSUActivationProbe(OOOIEXLSUActivationParams.W4),
-    args,
-    firtoolOpts = Array("--disable-all-randomization", "--strip-debug-info"))
-}
