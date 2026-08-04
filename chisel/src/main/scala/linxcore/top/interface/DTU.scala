@@ -36,7 +36,7 @@ object DebugCommand extends ChiselEnum {
 class DebugRequest(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
   val command = DebugCommand()
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val stid = UInt(p.ooo.stidWidth.W)
   val address = UInt(p.dataWidth.W)
   val data = UInt(p.dataWidth.W)
 }

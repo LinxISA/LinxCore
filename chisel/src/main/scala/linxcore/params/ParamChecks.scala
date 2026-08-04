@@ -140,14 +140,34 @@ object ParamChecks {
       isPowerOfTwo(p.ooo.stidCount),
       "OOO STID count must be a positive power of two")
     require(
+      isPowerOfTwo(p.ooo.stidIdentityEntries) &&
+        p.ooo.stidIdentityEntries >= p.ooo.stidCount,
+      "STID identity entries must be a power of two covering physical STIDs")
+    require(
       isPowerOfTwo(p.ooo.robGroupsPerStid),
       "ROB groups per STID must be a positive power of two")
+    require(
+      isPowerOfTwo(p.ooo.robIdentityGroupsPerStid) &&
+        p.ooo.robIdentityGroupsPerStid >= p.ooo.robGroupsPerStid,
+      "ROB identity groups must be a power of two covering physical ROB groups")
     require(
       p.ooo.maxInstructionsPerRobGroup > 0,
       "ROB group instruction capacity must be positive")
     require(
+      isPowerOfTwo(p.ooo.robIdentityMembersPerGroup) &&
+        p.ooo.robIdentityMembersPerGroup >=
+          p.ooo.maxInstructionsPerRobGroup,
+      "ROB identity members must be a power of two covering physical group instruction capacity")
+    require(
       p.ooo.maxUopsPerInstruction > 0,
       "decoded instruction uop capacity must be positive")
+    require(
+      isPowerOfTwo(p.ooo.uopIdentityEntriesPerInstruction) &&
+        p.ooo.uopIdentityEntriesPerInstruction >=
+          p.ooo.maxUopsPerInstruction &&
+        p.ooo.uopIdentityEntriesPerInstruction >=
+          p.ooo.robIdentityMembersPerGroup,
+      "uop identity entries must be a power of two covering physical uops and ROB identity members")
     require(
       p.ooo.robCapacityPerStid >= p.ooo.d3PrefixWidth,
       "ROB capacity must hold one D3 prefix")
@@ -162,6 +182,10 @@ object ParamChecks {
       isPowerOfTwo(p.ooo.brobEntriesPerStid) &&
         p.ooo.brobEntriesPerStid >= 2,
       "BROB entries per STID must be a power of two and at least 2")
+    require(
+      isPowerOfTwo(p.ooo.brobIdentityEntriesPerStid) &&
+        p.ooo.brobIdentityEntriesPerStid >= p.ooo.brobEntriesPerStid,
+      "BROB identity entries must be a power of two covering physical entries")
     require(
       isPowerOfTwo(p.ooo.pcBufferEntries) &&
         p.ooo.pcBufferEntries % p.ooo.stidCount == 0,
@@ -190,6 +214,10 @@ object ParamChecks {
       isPowerOfTwo(p.ooo.gprPhysRegs) &&
         p.ooo.gprPhysRegs > p.ooo.stidCount * p.ooo.gprArchRegs,
       "physical GPR capacity must cover committed and speculative mappings")
+    require(
+      isPowerOfTwo(p.ooo.gprTagIdentityEntries) &&
+        p.ooo.gprTagIdentityEntries >= p.ooo.gprPhysRegs,
+      "GPR tag identity entries must cover the physical GPR capacity")
     val renameDestinationDemand =
       p.ooo.renameWidth * p.maxDestinationOperands
     require(
@@ -207,6 +235,12 @@ object ParamChecks {
     require(
       isPowerOfTwo(p.ooo.tPhysRegs) && isPowerOfTwo(p.ooo.uPhysRegs),
       "T and U physical namespaces must be powers of two")
+    require(
+      isPowerOfTwo(p.ooo.tTagIdentityEntries) &&
+        isPowerOfTwo(p.ooo.uTagIdentityEntries) &&
+        p.ooo.tTagIdentityEntries >= p.ooo.tPhysRegs &&
+        p.ooo.uTagIdentityEntries >= p.ooo.uPhysRegs,
+      "T and U tag identity entries must cover their physical namespaces")
     require(
       p.ooo.tPhysRegs >= renameDestinationDemand &&
         p.ooo.uPhysRegs >= renameDestinationDemand,

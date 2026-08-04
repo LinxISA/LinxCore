@@ -465,11 +465,18 @@ object OooIexPhysicalProfile {
     require(iex.executionPipeKinds == OooIexDomainCapability.Count,
       "canonical Execution pipe classification must cover every capability")
 
+    val minimumRetireSourceDepth = {
+      val rows = core.ooo.robGroupsPerStid *
+        math.max(core.ooo.decodeWidth, core.ooo.renameWidth)
+      if (rows <= 1) 1
+      else 1 << (32 - Integer.numberOfLeadingZeros(rows - 1))
+    }
     OooParams.fromCoreParams(core).copy(
       iqBankCount = iex.scalarIssueBanks,
       iqEntriesPerBank = iex.scalarIssueEntries / iex.scalarIssueBanks,
       iexPReadPorts = iex.integerReadPorts,
-      iexPWritePorts = iex.integerWritePorts)
+      iexPWritePorts = iex.integerWritePorts,
+      tuRetireSourceDepthPerStid = minimumRetireSourceDepth)
   }
 
   private def bankMask(bankCount: Int, lane: Int, laneCount: Int): BigInt =

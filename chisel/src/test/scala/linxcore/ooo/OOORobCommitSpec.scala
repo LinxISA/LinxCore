@@ -13,6 +13,7 @@ class OOORobCommitSpec extends AnyFunSuite with ChiselSim {
     base.copy(
       ooo = base.ooo.copy(
         stidCount = stids,
+        stidIdentityEntries = math.max(2, stids),
         robGroupsPerStid = groups,
         maxInstructionsPerRobGroup = 2,
         robBankCount = groups,

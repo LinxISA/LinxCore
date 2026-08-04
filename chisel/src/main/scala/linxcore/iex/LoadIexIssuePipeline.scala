@@ -92,7 +92,7 @@ class LoadIexIssuePipeline(
     "the Linx scalar execution profile needs at least one load-address lane")
   require(lsu.loadReturnPipeCount >= laneCount,
     "each physical load lane needs a canonical LSU return-pipe identity")
-  require(p.robGroupsPerStid <= coreParams.robEntries,
+  require(p.robIdentityGroupsPerStid <= coreParams.robEntries,
     "OOO RID slots must fit the canonical LSU ROB projection")
   require(p.nativeBidWidth <= log2Ceil(coreParams.robEntries) + 1,
     "native BID must fit the canonical LSU value-plus-wrap projection")

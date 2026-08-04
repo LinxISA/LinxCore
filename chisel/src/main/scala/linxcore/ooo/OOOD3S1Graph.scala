@@ -17,7 +17,7 @@ private[ooo] object OOOCommitApplyPolicy {
 class OOOD3S1GraphIO(val p: CoreParams) extends Bundle {
   val fromD2 = Flipped(Decoupled(new D2AdmissionGroup(p)))
   val ridTailSlot = Output(Vec(p.ooo.stidCount,
-    UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)))
+    UInt(p.ooo.ridSlotWidth.W)))
   val ridTailGeneration = Output(Vec(p.ooo.stidCount,
     UInt(p.ridGenerationWidth.W)))
   val iex = new OOOIEXIO(p)

@@ -32,19 +32,15 @@ retained training.
 | `brob-xcheck` | `tools/chisel/run_chisel_tests.sh --only BROB` | Run Packet C BID encoding and BROB metadata lifecycle tests. |
 | `commit-monitor-xcheck` | `tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor` | Run Phase 1 fixed-width commit-window contract checks. |
 | `reduced-rob-xcheck` | `tools/chisel/run_chisel_reduced_rob_xcheck.sh` | Emit `ReducedCommitROB`, build the Verilator harness, assert commit-window monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
-| `top-xcheck` | `tools/chisel/run_chisel_top_xcheck.sh` | Emit the reduced `LinxCoreTop` xcheck configuration, build the same Verilator harness against top-level IO, assert monitor outputs, and compare normalized DUT rows against QEMU-shaped reference rows. |
+| `frontend-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh` | Emit the canonical frontend trace top, build its Verilator harness, and compare normalized DUT rows against QEMU-shaped reference rows. Use `--dry-run` for the non-RTL dependency and argument smoke. |
 | `frontend-fetch-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh` | Verification-only fixture: drive a bounded memory window through `FrontendFetchPacketSource`, the window slicer, and reduced decode/ROB; this does not prove I-F0–I-F4 or B-F0–B-F4. |
 | `frontend-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendAluTraceTop`, build the Verilator harness, drive frontend packets through reduced scalar ALU execute, and compare nonzero writeback rows against QEMU-shaped reference rows. |
 | `frontend-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` | Emit `LinxCoreFrontendRfAluTraceTop`, build the shared Verilator harness in RF mode, preload identity scalar registers, enqueue dependent scalar ALU rows through the reduced issue queue, and compare RF-sourced writeback rows against QEMU-shaped reference rows. |
-| `frontend-fetch-rf-alu-trace-top-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` | Verification-only fixture: drive PC request/response windows through the current source/window path, reduced rename/ROB, RF-backed issue, and ALU execute; it is not production IFU pipeline evidence. |
-| `frontend-fetch-rf-alu-qemu-elf-xcheck` | `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` | Capture a bounded live QEMU commit prefix from a direct-boot ELF, validate the selected rows as the strict reduced scalar subset, pair them with `FETCH_ELF` sparse fetch memory, and run the live fetch RF/ALU generated-RTL comparator gate. |
-| `frontend-fetch-rf-alu-qemu-fixture-elf` | `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh` | Build a tiny legal-entry direct-boot ELF (`C.BSTART.STD; ADD; ADDI; C.MOVR; C.BSTOP`) and print the scalar PC filter used by the live QEMU ELF xcheck. |
 | `frontend-fetch-rf-alu-fixture-rows` | `tools/chisel/frontend_fetch_rf_alu_fixture_rows.py --self-test` | Validate the default QEMU-shaped expected-row fixture used when `FETCH_EXPECTED_ROWS` is unset. |
 | `frontend-fetch-rf-alu-qemu-rows` | `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py --self-test` | Validate strict QEMU commit JSONL prefix extraction for the reduced scalar RF/ALU gate used by `FETCH_QEMU_TRACE`. |
 | `frontend-fetch-elf-memory` | `tools/chisel/frontend_fetch_elf_memory.py --self-test` | Validate the ELF64 little-endian PT_LOAD extractor that creates sparse address-to-byte fetch-memory images for `FETCH_ELF` runs. |
 | `commit-jsonl-writer` | `tools/chisel/commit_trace_jsonl.h` | Shared C++ helper used by Verilator harnesses to emit QEMU-shaped reference rows and DUT sideband rows without per-harness field spelling drift. |
 | `qemu-crosscheck` | `tools/chisel/run_chisel_qemu_crosscheck.sh` | Normalize QEMU and DUT commit JSONL, run the neutral comparator, and emit `crosscheck_manifest.json` tying raw traces, normalized traces, reports, QEMU binary, row counts, and git context into one evidence bundle. |
-| `qemu-trace-replay-xcheck` | `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh` | Capture or consume a bounded QEMU commit JSONL prefix, replay those rows through the current Chisel commit surface in an isolated build directory, and preserve comparator manifest evidence. |
 
 The target shape follows the useful part of the OpenXiangShan flow: make Chisel
 generation, simulation/emulator construction, and architectural cross-checking
@@ -95,7 +91,7 @@ expectations from QEMU-shaped JSONL and the wrapper sizes the comparator window
 from that row count. R99 adds `FETCH_QEMU_TRACE`, which normalizes an existing
 QEMU commit JSONL and extracts a strict sequential reduced-scalar prefix into
 the expected-row stream. R100 adds
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`, which captures a
+The now-deleted historical fetch/RF/ALU QEMU wrapper captured a
 bounded live QEMU prefix from a direct-boot ELF, optionally filters the scalar
 PC range after the legal entry block header, and runs the same `FETCH_ELF` plus
 `FETCH_QEMU_TRACE` comparator path. Chisel now owns packet creation, F4

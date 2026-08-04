@@ -9,7 +9,7 @@ import linxcore.params.CoreParams
   */
 class IEXTerminalPWriteObservation(val p: CoreParams) extends Bundle {
   val rob = new RobIdentity(p)
-  val ptag = UInt(InterfaceWidth.index(p.ooo.gprPhysRegs).W)
+  val ptag = UInt(p.ooo.gprTagWidth.W)
   val generation = UInt(p.ooo.gprTagGenerationWidth.W)
   val value = UInt(p.dataWidth.W)
 }

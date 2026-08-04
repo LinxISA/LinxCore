@@ -511,7 +511,7 @@ evidence.
       "public_interface_file": "chisel/src/main/scala/linxcore/top/interface/LSUIO.scala",
       "active_callers": ["chisel/src/main/scala/linxcore/lsu/ScalarLSULoadPath.scala", "chisel/src/main/scala/linxcore/lsu/ScalarLSUMDBPathProbe.scala"],
       "verification_fixtures": ["chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala", "chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala", "chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala"],
-      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/LSULoadSpec.scala", "level": "L3", "status": "public-box-verified"}],
+      "production_evidence": [{"fixture": "chisel/src/test/scala/linxcore/lsu/ScalarLSUMDBPathSpec.scala", "level": "L3", "status": "standalone-verified"}, {"fixture": "chisel/src/test/scala/linxcore/lsu/MDBConflictDetectSpec.scala", "level": "L3", "status": "standalone-verified"}],
       "cutover_task": 15,
       "deletion_targets": [],
       "adapters": []

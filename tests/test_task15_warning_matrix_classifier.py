@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -38,6 +40,29 @@ class Task15WarningMatrixClassifierTest(unittest.TestCase):
     def test_incomplete_matrix_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             CLASSIFIER.classify("TASK15_WARNING_MATRIX_BEGIN W2")
+
+    def run_classifier(self, text: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".log") as log:
+            log.write(text)
+            log.flush()
+            return subprocess.run(
+                ["python3", str(MODULE_PATH), log.name],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+    def test_non_target_warning_inside_matrix_fails(self) -> None:
+        proc = self.run_classifier(self.matrix("[W099] unexpected warning"))
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("rejected=W099", proc.stdout)
+
+    def test_warning_outside_matrix_fails(self) -> None:
+        proc = self.run_classifier("[W777] outside\n" + self.matrix())
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("outside=W777", proc.stdout)
 
 
 if __name__ == "__main__":

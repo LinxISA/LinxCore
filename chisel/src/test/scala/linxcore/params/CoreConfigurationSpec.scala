@@ -93,7 +93,8 @@ class CoreConfigurationSpec extends AnyFunSuite {
 
     assert(singletonError.getMessage.contains(
       "BROB entries per STID must be a power of two and at least 2"))
-    assert(base.copy(ooo = base.ooo.copy(brobEntriesPerStid = 4)).nativeBidWidth == 2)
+    assert(base.copy(ooo = base.ooo.copy(brobEntriesPerStid = 4)).nativeBidWidth ==
+      base.nativeBidWidth)
     assert(base.nativeBidWidth == 8)
   }
 
@@ -143,6 +144,31 @@ class CoreConfigurationSpec extends AnyFunSuite {
     }
     assertThrows[IllegalArgumentException] {
       wide.copy(ooo = wide.ooo.copy(tuMapQDepthPerStid = 8))
+    }
+  }
+
+  test("identity namespaces fail closed when they do not cover physical storage") {
+    val base = ParamProfiles.W4
+
+    assertThrows[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(
+        robIdentityGroupsPerStid = 4,
+        robGroupsPerStid = 8))
+    }
+    assertThrows[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(
+        robIdentityMembersPerGroup = 2,
+        maxInstructionsPerRobGroup = 4))
+    }
+    assertThrows[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(
+        uopIdentityEntriesPerInstruction = 8,
+        maxUopsPerInstruction = 12))
+    }
+    assertThrows[IllegalArgumentException] {
+      base.copy(ooo = base.ooo.copy(
+        gprTagIdentityEntries = 32,
+        gprPhysRegs = 64))
     }
   }
 

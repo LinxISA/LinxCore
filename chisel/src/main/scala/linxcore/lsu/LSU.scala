@@ -23,8 +23,10 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   private val profile = OooIexPhysicalProfile.fromCoreParams(p)
   private val op = profile.params
   private val scalarLsu = ScalarLsuParams.fromMainline(p)
+  private val scalarRobIdentityEntries = math.max(
+    op.robIdentityGroupsPerStid, 1 << (op.nativeBidWidth - 1))
   private val scalar = ScalarCoreParams(
-    robEntries = op.robGroupsPerStid,
+    robEntries = scalarRobIdentityEntries,
     commitWidth = p.widths.retireWidth,
     scalarLsu = scalarLsu,
     lsidWidth = p.lsidWidth)
@@ -46,7 +48,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     simtLaneWidth = scalarLsu.simtLaneWidth,
     lineBytes = scalarLsu.lineBytes,
     mapQDepth = op.tuMapQDepthPerStid,
-    robEntries = op.robGroupsPerStid,
+    robEntries = op.robIdentityGroupsPerStid,
     lsidWidth = op.lsidWidth,
     nativeBidWidth = op.nativeBidWidth,
     ridGenerationWidth = op.ridGenerationWidth,
@@ -56,7 +58,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     leaseGenerationWidth = op.executeSlotGenerationWidth))
   private val load = Module(new ScalarLSULoadPath(
     scalar, useExternalStqForwarding = true,
-    stqForwardRobEntries = op.robGroupsPerStid,
+    stqForwardRobEntries = op.robIdentityGroupsPerStid,
     stqForwardTokenWidth = op.transactionIdWidth,
     useExternalLaunchPermit = true))
 

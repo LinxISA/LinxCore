@@ -12,6 +12,7 @@ class RENUAtomicSpec extends AnyFunSuite with ChiselSim {
     ParamProfiles.forWidth(width).copy(
       ooo = ParamProfiles.forWidth(width).ooo.copy(
         stidCount = stids,
+        stidIdentityEntries = math.max(2, stids),
         robGroupsPerStid = 8,
         gprPhysRegs = if (stids == 1) 32 else 64,
         gprMapQDepthPerStid = 8,

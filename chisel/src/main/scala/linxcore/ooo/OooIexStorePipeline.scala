@@ -38,7 +38,7 @@ class OooIexStorePipelineIO(
   val sta = Flipped(Decoupled(new OooIexStoreExecute(p, stqEntries)))
   val std = Flipped(Decoupled(new OooIexStoreExecute(p, stqEntries)))
   val fill = Decoupled(new STQStoreRequest(
-    p.robGroupsPerStid,
+    p.robIdentityGroupsPerStid,
     peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth,
     tidWidth = p.stidWidth,
@@ -229,8 +229,8 @@ class OooIexStorePipeline(
     req.gid.wrap := logical.group.ridGeneration(0)
     req.rid := req.gid
     req.lsId.valid := true.B
-    req.lsId.value := fullLsid(log2Ceil(p.robGroupsPerStid) - 1, 0)
-    req.lsId.wrap := fullLsid(log2Ceil(p.robGroupsPerStid))
+    req.lsId.value := fullLsid(p.ridSlotWidth - 1, 0)
+    req.lsId.wrap := fullLsid(p.ridSlotWidth)
     req.lsIdFull := fullLsid
     req.storeIdFullValid := true.B
     req.storeIdFull := fullStoreId

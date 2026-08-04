@@ -15,6 +15,29 @@ QEMU_TRACE="${TRACE_DIR}/qemu.reference.jsonl"
 if [[ "${1:-}" == "--check-dependencies" ]]; then
   exec python3 "${ROOT_DIR}/tools/chisel/check_crosscheck_wrapper_dependencies.py"
 fi
+if [[ "${1:-}" == "--dry-run" ]]; then
+  EMITTER_SOURCE="${ROOT_DIR}/chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala"
+  HARNESS_SOURCE="${ROOT_DIR}/tools/chisel/frontend_trace_top_tb.cpp"
+  CROSSCHECK="${ROOT_DIR}/tools/chisel/run_chisel_qemu_crosscheck.sh"
+  [[ -f "${EMITTER_SOURCE}" ]] || { echo "error: missing emitter source: ${EMITTER_SOURCE}" >&2; exit 2; }
+  [[ -f "${HARNESS_SOURCE}" ]] || { echo "error: missing harness: ${HARNESS_SOURCE}" >&2; exit 2; }
+  [[ -f "${CROSSCHECK}" ]] || { echo "error: missing crosscheck: ${CROSSCHECK}" >&2; exit 2; }
+  grep -q 'object EmitLinxCoreFrontendTraceTop' "${EMITTER_SOURCE}" || {
+    echo "error: canonical frontend trace emitter object is absent" >&2
+    exit 2
+  }
+  grep -q 'LinxCoreFrontendTraceTop' "${HARNESS_SOURCE}" || {
+    echo "error: harness does not bind LinxCoreFrontendTraceTop" >&2
+    exit 2
+  }
+  bash -n "${CROSSCHECK}"
+  echo "frontend-trace-top-xcheck-dry-run=pass"
+  echo "emitter=linxcore.top.EmitLinxCoreFrontendTraceTop"
+  echo "top=LinxCoreFrontendTraceTop"
+  echo "harness=${HARNESS_SOURCE} --dut-trace ${DUT_TRACE} --qemu-trace ${QEMU_TRACE}"
+  echo "crosscheck=${CROSSCHECK} --qemu-trace ${QEMU_TRACE} --dut-trace ${DUT_TRACE} --report-dir ${REPORT_DIR} --max-commits 3 --mode failfast"
+  exit 0
+fi
 if [[ $# -ne 0 ]]; then
   echo "error: unsupported argument: $1" >&2
   exit 2

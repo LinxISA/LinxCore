@@ -145,6 +145,6 @@ payloads remain tied to current reduced owners.
 - `bash tools/chisel/run_chisel_frontend_trace_top_lint.sh`
 - `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
 - `bash tools/chisel/run_chisel_tests.sh --only DecodeRenameROBPath`
-- `bash tools/chisel/run_chisel_trace_replay_xcheck.sh`
+- `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh --dry-run`
 - `python3 tools/chisel/trace_schema_adapter.py --self-test`
 - `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run`

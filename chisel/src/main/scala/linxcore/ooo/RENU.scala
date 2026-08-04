@@ -19,10 +19,10 @@ class RENU(val p: CoreParams) extends Module {
   val io = IO(new RENUD2D3IO(p))
 
   private val width = p.widths.decodeWidth
-  private val stidIndexWidth = math.max(1, log2Ceil(p.ooo.stidCount))
+  private val stidIndexWidth = p.ooo.stidWidth
 
   private def safeStid(value: UInt): UInt =
-    if (p.ooo.stidCount == 1) 0.U else value(log2Ceil(p.ooo.stidCount) - 1, 0)
+    if (p.ooo.stidCount == 1) 0.U else value(p.ooo.stidWidth - 1, 0)
 
   val pRename = Module(new PRename(p))
   val tuRename = Module(new TURename(p))

@@ -10,6 +10,7 @@ import chisel3.util.log2Ceil
   */
 final case class OooParams(
     stidCount: Int = 4,
+    stidIdentityEntries: Int = 4,
     instructionDecodeWidth: Int = 4,
     decodedUopWidth: Int = 8,
     renameWidth: Int = 8,
@@ -18,16 +19,21 @@ final case class OooParams(
     robCompletionBufferEntries: Int = 8,
     storeCommitBufferEntries: Int = 64,
     maxInstPerRobGroup: Int = 4,
+    robIdentityMembersPerGroup: Int = 4,
     maxOrdinaryUopsPerGroup: Int = 12,
     maxRecipeUops: Int = 32,
+    uopIdentityEntriesPerInstruction: Int = 32,
     robGroupsPerStid: Int = 64,
+    robIdentityGroupsPerStid: Int = 64,
     robBankCount: Int = 8,
     robSubbankCount: Int = 2,
     robRecoveryScanGroupsPerCycle: Int = 8,
     robNonFlushScanGroupsPerCycle: Int = 8,
     brobEntriesPerStid: Int = 256,
+    brobIdentityEntriesPerStid: Int = 256,
     pArchRegs: Int = 24,
     pPhysRegs: Int = 128,
+    pTagIdentityEntries: Int = 128,
     pTagBanks: Int = 2,
     pTagStagingDepthPerBank: Int = 8,
     pTagReturnWidth: Int = 8,
@@ -35,7 +41,9 @@ final case class OooParams(
     pMapQDepthPerStid: Int = 256,
     pMapQSubbankCount: Int = 2,
     tPhysRegs: Int = 32,
+    tTagIdentityEntries: Int = 32,
     uPhysRegs: Int = 32,
+    uTagIdentityEntries: Int = 32,
     tuMapQDepthPerStid: Int = 32,
     tuRetireSourceDepthPerStid: Int = 512,
     tuRelationDepthPerStid: Int = 8,
@@ -101,6 +109,8 @@ final case class OooParams(
     (stidCount * pArchRegs until pPhysRegs).count(_ % pTagBanks == bank)
 
   require(isPowerOfTwo(stidCount), "stidCount must be a positive power of two")
+  require(isPowerOfTwo(stidIdentityEntries) && stidIdentityEntries >= stidCount,
+    "STID identity entries must be a power of two covering physical STIDs")
   require(Set(2, 4, 6, 8).contains(instructionDecodeWidth),
     "instructionDecodeWidth must be one of 2, 4, 6, or 8")
   require(decodedUopWidth >= instructionDecodeWidth,
@@ -112,12 +122,22 @@ final case class OooParams(
     "store commit buffer must be a power of two covering one worst-case ROB commit batch")
   require(maxInstPerRobGroup > 0,
     "ROB group instruction cap must be positive")
+  require(isPowerOfTwo(robIdentityMembersPerGroup) &&
+    robIdentityMembersPerGroup >= maxInstPerRobGroup,
+    "ROB identity members must be a power of two covering physical group instruction capacity")
   require(maxOrdinaryUopsPerGroup >= maxInstPerRobGroup,
     "ROB group member cap must cover its architectural parents")
   require(maxRecipeUops >= maxOrdinaryUopsPerGroup,
     "recipe count must cover ordinary and multi-group CTU expansion")
+  require(isPowerOfTwo(uopIdentityEntriesPerInstruction) &&
+    uopIdentityEntriesPerInstruction >= maxRecipeUops &&
+    uopIdentityEntriesPerInstruction >= robIdentityMembersPerGroup,
+    "uop identity entries must be a power of two covering recipe uops and ROB identity members")
   require(isPowerOfTwo(robGroupsPerStid),
     "ROB groups per STID must be a power of two")
+  require(isPowerOfTwo(robIdentityGroupsPerStid) &&
+    robIdentityGroupsPerStid >= robGroupsPerStid,
+    "ROB identity groups must be a power of two covering physical ROB groups")
   require(isPowerOfTwo(robBankCount),
     "ROB bank count must be a positive power of two")
   require(isPowerOfTwo(robSubbankCount),
@@ -133,9 +153,14 @@ final case class OooParams(
     "ROB banks must cover one publication and retirement prefix without a bank collision")
   require(isPowerOfTwo(brobEntriesPerStid),
     "BROB entries per STID must be a power of two")
+  require(isPowerOfTwo(brobIdentityEntriesPerStid) &&
+    brobIdentityEntriesPerStid >= brobEntriesPerStid,
+    "BROB identity entries must be a power of two covering physical entries")
   require(pArchRegs == 24, "Linx scalar P namespace contains 24 registers")
   require(isPowerOfTwo(pPhysRegs) && pPhysRegs > stidCount * pArchRegs,
     "PTag namespace must cover committed mappings for every STID plus speculation")
+  require(isPowerOfTwo(pTagIdentityEntries) && pTagIdentityEntries >= pPhysRegs,
+    "PTag identity entries must cover the physical namespace")
   require(pTagMinimumSpeculativePerStid > 0,
     "every STID must receive a nonzero speculative PTag guarantee")
   require(pPhysRegs >= stidCount * (pArchRegs + pTagMinimumSpeculativePerStid),
@@ -163,6 +188,10 @@ final case class OooParams(
   require(isPowerOfTwo(tPhysRegs) && isPowerOfTwo(uPhysRegs) &&
     tPhysRegs >= 2 && uPhysRegs >= 2,
     "T and U physical namespaces must be powers of two with at least two entries")
+  require(isPowerOfTwo(tTagIdentityEntries) &&
+    isPowerOfTwo(uTagIdentityEntries) &&
+    tTagIdentityEntries >= tPhysRegs && uTagIdentityEntries >= uPhysRegs,
+    "T and U tag identity entries must cover their physical namespaces")
   require(isPowerOfTwo(tuMapQDepthPerStid),
     "T/U MapQ depth per STID must be a power of two")
   require(tuMapQDepthPerStid >= decodedUopWidth * maxDestinationOperands,
@@ -176,8 +205,9 @@ final case class OooParams(
   require(tuRelationReleaseThreshold >= 0 &&
     tuRelationReleaseThreshold < tuRelationDepthPerStid,
     "T/U relation pressure threshold must fit the relation CMAP")
-  require(localTagWidth >= log2Ceil(math.max(tPhysRegs, uPhysRegs)),
-    "localTagWidth must address both T and U physical namespaces")
+  require(localTagWidth >= log2Ceil(math.max(
+    tTagIdentityEntries, uTagIdentityEntries)),
+    "localTagWidth must preserve both T and U tag identity namespaces")
   require(localSeqGenerationWidth > 0,
     "local sequence generation width must be positive")
   require(isPowerOfTwo(pcBufferEntries), "PC buffer entries must be a power of two")
@@ -264,8 +294,8 @@ final case class OooParams(
   def maxCommitStoreTokens: Int = retireGroupWidth * decodedUopWidth *
     maxMemoryRequestsPerInstruction
   def storeCommitBufferCountWidth: Int = countWidth(storeCommitBufferEntries)
-  def stidWidth: Int = math.max(1, log2Ceil(stidCount))
-  def ridSlotWidth: Int = log2Ceil(robGroupsPerStid)
+  def stidWidth: Int = math.max(1, log2Ceil(stidIdentityEntries))
+  def ridSlotWidth: Int = log2Ceil(robIdentityGroupsPerStid)
   def robBankCountEffective: Int = math.min(robBankCount, robGroupsPerStid)
   def robSubbankCountEffective: Int = math.min(
     robSubbankCount,
@@ -287,10 +317,12 @@ final case class OooParams(
     math.min(robNonFlushScanGroupsPerCycle, robBankCountEffective)
   def robNonFlushScanCycles: Int =
     robGroupsPerStid / robNonFlushScanGroupsPerCycleEffective
-  def nativeBidWidth: Int = log2Ceil(brobEntriesPerStid)
+  def nativeBidWidth: Int = log2Ceil(brobIdentityEntriesPerStid)
   def brobCountWidth: Int = countWidth(brobEntriesPerStid)
   def brobLiveGroupCountWidth: Int = countWidth(robGroupsPerStid)
-  def pTagWidth: Int = log2Ceil(pPhysRegs)
+  def pTagWidth: Int = log2Ceil(pTagIdentityEntries)
+  def tTagWidth: Int = log2Ceil(tTagIdentityEntries)
+  def uTagWidth: Int = log2Ceil(uTagIdentityEntries)
   def pTagBankWidth: Int = math.max(1, log2Ceil(pTagBanks))
   def pTagAllocationWidth: Int = decodedUopWidth * maxDestinationOperands
   def pTagReturnCountWidth: Int = countWidth(pTagReturnWidth)
@@ -348,13 +380,13 @@ final case class OooParams(
   def robReleaseCountWidth: Int = countWidth(retireGroupWidth)
   def robGroupIndexWidth: Int = math.max(1, log2Ceil(instructionDecodeWidth))
   def robGroupParentDemandWidth: Int =
-    countWidth(maxInstPerRobGroup + maxArchitecturalParentRefs)
+    countWidth(robIdentityMembersPerGroup + maxArchitecturalParentRefs)
   private def maxLogicalUopsPerParent: Int =
-    math.max(maxOrdinaryUopsPerGroup, maxRecipeUops)
+    math.max(maxOrdinaryUopsPerGroup, uopIdentityEntriesPerInstruction)
   def robMemberIndexWidth: Int = math.max(1, log2Ceil(maxLogicalUopsPerParent))
   def robMemberCountWidth: Int = countWidth(maxLogicalUopsPerParent)
   def decodedUopIndexWidth: Int = math.max(1, log2Ceil(decodedUopWidth))
-  def recipeUopCountWidth: Int = countWidth(maxRecipeUops)
+  def recipeUopCountWidth: Int = countWidth(uopIdentityEntriesPerInstruction)
   def architecturalParentCountWidth: Int = countWidth(maxArchitecturalParentRefs)
   def sourceCountWidth: Int = countWidth(maxSourceOperands)
   def destinationCountWidth: Int = countWidth(maxDestinationOperands)
@@ -369,15 +401,21 @@ final case class OooParams(
   def toMainline: linxcore.params.OOOParams =
     linxcore.params.OOOParams(
       stidCount = stidCount,
+      stidIdentityEntries = stidIdentityEntries,
       decodeWidth = instructionDecodeWidth,
       renameWidth = renameWidth,
       dispatchWidth = dispatchWidth,
       d3PrefixWidth = math.min(renameWidth, dispatchWidth),
       retireWidth = retireGroupWidth,
       robGroupsPerStid = robGroupsPerStid,
+      robIdentityGroupsPerStid = robIdentityGroupsPerStid,
       maxInstructionsPerRobGroup = maxInstPerRobGroup,
+      robIdentityMembersPerGroup = robIdentityMembersPerGroup,
+      maxUopsPerInstruction = maxRecipeUops,
+      uopIdentityEntriesPerInstruction = uopIdentityEntriesPerInstruction,
       robBankCount = robBankCount,
       brobEntriesPerStid = brobEntriesPerStid,
+      brobIdentityEntriesPerStid = brobIdentityEntriesPerStid,
       pcBufferEntries = pcBufferEntries,
       pcBankCount = pcBankCount,
       pcRecoveryScanGroupsPerCycle = pcRecoveryScanGroupsPerCycle,
@@ -388,10 +426,13 @@ final case class OooParams(
       pcAllocationEpochWidth = reservationEpochWidth,
       gprArchRegs = pArchRegs,
       gprPhysRegs = pPhysRegs,
+      gprTagIdentityEntries = pTagIdentityEntries,
       gprTagGenerationWidth = pTagGenerationWidth,
       gprMapQDepthPerStid = pMapQDepthPerStid,
       tPhysRegs = tPhysRegs,
+      tTagIdentityEntries = tTagIdentityEntries,
       uPhysRegs = uPhysRegs,
+      uTagIdentityEntries = uTagIdentityEntries,
       localSeqGenerationWidth = localSeqGenerationWidth,
       tuMapQDepthPerStid = tuMapQDepthPerStid)
 }
@@ -409,6 +450,7 @@ object OooParams {
 
     OooParams(
       stidCount = p.stidCount,
+      stidIdentityEntries = p.stidIdentityEntries,
       instructionDecodeWidth = p.decodeWidth,
       decodedUopWidth = decodedWidth,
       renameWidth = p.renameWidth,
@@ -416,12 +458,16 @@ object OooParams {
       retireGroupWidth = p.retireWidth,
       storeCommitBufferEntries = commitBufferEntries,
       maxInstPerRobGroup = p.maxInstructionsPerRobGroup,
+      robIdentityMembersPerGroup = p.robIdentityMembersPerGroup,
       maxRecipeUops = p.maxUopsPerInstruction,
+      uopIdentityEntriesPerInstruction = p.uopIdentityEntriesPerInstruction,
       robGroupsPerStid = p.robGroupsPerStid,
+      robIdentityGroupsPerStid = p.robIdentityGroupsPerStid,
       robBankCount = p.robBankCount,
       robRecoveryScanGroupsPerCycle = p.robBankCount,
       robNonFlushScanGroupsPerCycle = p.robBankCount,
       brobEntriesPerStid = p.brobEntriesPerStid,
+      brobIdentityEntriesPerStid = p.brobIdentityEntriesPerStid,
       pcBufferEntries = p.pcBufferEntries,
       pcBankCount = p.pcBankCount,
       pcRecoveryScanGroupsPerCycle = p.pcRecoveryScanGroupsPerCycle,
@@ -432,10 +478,13 @@ object OooParams {
       reservationEpochWidth = p.pcAllocationEpochWidth,
       pArchRegs = p.gprArchRegs,
       pPhysRegs = p.gprPhysRegs,
+      pTagIdentityEntries = p.gprTagIdentityEntries,
       pTagGenerationWidth = p.gprTagGenerationWidth,
       pMapQDepthPerStid = p.gprMapQDepthPerStid,
       tPhysRegs = p.tPhysRegs,
+      tTagIdentityEntries = p.tTagIdentityEntries,
       uPhysRegs = p.uPhysRegs,
+      uTagIdentityEntries = p.uTagIdentityEntries,
       localSeqGenerationWidth = p.localSeqGenerationWidth,
       tuMapQDepthPerStid = p.tuMapQDepthPerStid)
   }

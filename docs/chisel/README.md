@@ -338,7 +338,7 @@ bash tools/chisel/run_chisel_tests.sh --only CommitTraceMonitor
 bash tools/chisel/run_chisel_tests.sh --only BROB
 bash tools/chisel/run_chisel_tests.sh --only FlushControl
 bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
-bash tools/chisel/run_chisel_top_xcheck.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
 SBT_OPTS='-Xms512m -Xmx4g -XX:+UseG1GC' bash tools/chisel/run_chisel_tests.sh --all
 bash tools/chisel/emit_verilog.sh
 bash tools/chisel/run_chisel_verilator_lint.sh

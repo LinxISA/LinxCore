@@ -16,20 +16,29 @@ object OOOIEXLSUActivationParams {
   private val main = ParamProfiles.W4
   val W4: CoreParams = main.copy(
     ooo = main.ooo.copy(
-      stidCount = main.ooo.stidCount,
-      robGroupsPerStid = main.ooo.robGroupsPerStid,
-      maxInstructionsPerRobGroup = main.ooo.maxInstructionsPerRobGroup,
-      maxUopsPerInstruction = main.ooo.maxUopsPerInstruction,
+      stidCount = 2,
+      stidIdentityEntries = main.ooo.stidIdentityEntries,
+      robGroupsPerStid = 8,
+      robIdentityGroupsPerStid = main.ooo.robIdentityGroupsPerStid,
+      maxInstructionsPerRobGroup = 1,
+      robIdentityMembersPerGroup = main.ooo.robIdentityMembersPerGroup,
+      maxUopsPerInstruction = 12,
+      uopIdentityEntriesPerInstruction =
+        main.ooo.uopIdentityEntriesPerInstruction,
       robBankCount = 4,
-      brobEntriesPerStid = main.ooo.brobEntriesPerStid,
+      brobEntriesPerStid = 8,
+      brobIdentityEntriesPerStid = main.ooo.brobIdentityEntriesPerStid,
       pcBufferEntries = 8,
       pcBankCount = 4,
       pcRecoveryScanGroupsPerCycle = 4,
-      gprPhysRegs = main.ooo.gprPhysRegs,
-      gprMapQDepthPerStid = main.ooo.gprMapQDepthPerStid,
-      tPhysRegs = main.ooo.tPhysRegs,
-      uPhysRegs = main.ooo.uPhysRegs,
-      tuMapQDepthPerStid = main.ooo.tuMapQDepthPerStid),
+      gprPhysRegs = 64,
+      gprTagIdentityEntries = main.ooo.gprTagIdentityEntries,
+      gprMapQDepthPerStid = 8,
+      tPhysRegs = 8,
+      tTagIdentityEntries = main.ooo.tTagIdentityEntries,
+      uPhysRegs = 8,
+      uTagIdentityEntries = main.ooo.uTagIdentityEntries,
+      tuMapQDepthPerStid = 8),
     iex = main.iex.copy(scalarIssueEntries = 4),
     lsu = main.lsu.copy(
       loadQueueEntries = 2,
@@ -124,8 +133,7 @@ class OOOIEXLSUActivationProbeIO(val p: CoreParams) extends Bundle {
   val memoryStallCount = Output(UInt(32.W))
   val lastResolveValue = Output(UInt(p.dataWidth.W))
   val lastRfWriteValue = Output(UInt(p.dataWidth.W))
-  val lastRfWritePtag = Output(UInt(
-    chisel3.util.log2Ceil(p.ooo.gprPhysRegs).W))
+  val lastRfWritePtag = Output(UInt(p.ooo.gprTagWidth.W))
   val lastRfWriteGeneration = Output(UInt(p.ooo.gprTagGenerationWidth.W))
   val lastBranchTarget = Output(UInt(p.pcWidth.W))
   val lastLoadAddress = Output(UInt(p.physicalAddressWidth.W))
@@ -451,8 +459,7 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   val lastRfWriteValue = RegInit(0.U(p.dataWidth.W))
   when(rfWriteFire) { lastRfWriteValue := iex.io.terminalPWrite.bits.value }
   io.lastRfWriteValue := lastRfWriteValue
-  val lastRfWritePtag = RegInit(0.U(
-    chisel3.util.log2Ceil(p.ooo.gprPhysRegs).W))
+  val lastRfWritePtag = RegInit(0.U(p.ooo.gprTagWidth.W))
   val lastRfWriteGeneration = RegInit(0.U(
     p.ooo.gprTagGenerationWidth.W))
   when(rfWriteFire) {

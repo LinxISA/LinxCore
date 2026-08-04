@@ -1,6 +1,7 @@
 package linxcore.params
 
 import linxcore.iex.OOOIEXLSUActivationParams
+import linxcore.ooo.{OooParams => MechanismOooParams}
 import org.scalatest.funsuite.AnyFunSuite
 
 class SimulationParamProfilesSpec extends AnyFunSuite {
@@ -25,20 +26,20 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
       assert(sim.ooo.dispatchWidth == width)
       assert(sim.ooo.retireWidth == width)
       assert(sim.iex.issueWidth == width)
-      assert(sim.ooo.robGroupsPerStid == main.ooo.robGroupsPerStid)
-      assert(sim.ooo.maxInstructionsPerRobGroup ==
-        main.ooo.maxInstructionsPerRobGroup)
-      assert(sim.ooo.maxUopsPerInstruction == main.ooo.maxUopsPerInstruction)
+      assert(sim.ooo.robGroupsPerStid == prefixCapacity)
+      assert(sim.ooo.maxInstructionsPerRobGroup == 1)
+      assert(sim.ooo.maxUopsPerInstruction == 12)
       assert(sim.ooo.robBankCount == prefixCapacity)
       assert(sim.ooo.pcRecoveryScanGroupsPerCycle == math.min(4,
         prefixCapacity))
       assert(sim.ooo.robGroupsPerStid %
         sim.ooo.pcRecoveryScanGroupsPerCycle == 0)
-      assert(sim.ooo.gprPhysRegs == main.ooo.gprPhysRegs)
-      assert(sim.ooo.gprMapQDepthPerStid == main.ooo.gprMapQDepthPerStid)
-      assert(sim.ooo.tPhysRegs == main.ooo.tPhysRegs)
-      assert(sim.ooo.uPhysRegs == main.ooo.uPhysRegs)
-      assert(sim.ooo.tuMapQDepthPerStid == main.ooo.tuMapQDepthPerStid)
+      assert(sim.ooo.gprPhysRegs <= main.ooo.gprPhysRegs)
+      assert(sim.ooo.gprMapQDepthPerStid ==
+        Integer.highestOneBit(width * sim.maxDestinationOperands - 1) * 2)
+      assert(sim.ooo.tPhysRegs == sim.ooo.gprMapQDepthPerStid)
+      assert(sim.ooo.uPhysRegs == sim.ooo.gprMapQDepthPerStid)
+      assert(sim.ooo.tuMapQDepthPerStid == sim.ooo.gprMapQDepthPerStid)
       assert(sim.iex.scalarIssueEntries == issueCapacity)
       assert(sim.iex.scalarIssueEntries / sim.iex.scalarIssueBanks >= 2)
       assert(sim.pcWidth == main.pcWidth)
@@ -75,23 +76,19 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(p.ifu.predictionCheckpointEntries == 8)
     assert(p.ctu.instructionBufferEntries == 8)
     assert(p.ctu.maxTemplateUops == 2)
-    assert(p.ooo.robGroupsPerStid == ParamProfiles.W8.ooo.robGroupsPerStid)
-    assert(p.ooo.maxInstructionsPerRobGroup ==
-      ParamProfiles.W8.ooo.maxInstructionsPerRobGroup)
-    assert(p.ooo.maxUopsPerInstruction ==
-      ParamProfiles.W8.ooo.maxUopsPerInstruction)
+    assert(p.ooo.robGroupsPerStid == 8)
+    assert(p.ooo.maxInstructionsPerRobGroup == 1)
+    assert(p.ooo.maxUopsPerInstruction == 12)
     assert(p.ooo.robBankCount == 8)
-    assert(p.ooo.brobEntriesPerStid == ParamProfiles.W8.ooo.brobEntriesPerStid)
-    assert(p.ooo.pcBufferEntries == ParamProfiles.W8.ooo.pcBufferEntries)
-    assert(p.ooo.pcBankCount == ParamProfiles.W8.ooo.pcBankCount)
+    assert(p.ooo.brobEntriesPerStid == 8)
+    assert(p.ooo.pcBufferEntries == 8)
+    assert(p.ooo.pcBankCount == 8)
     assert(p.ooo.pcRecoveryScanGroupsPerCycle == 4)
-    assert(p.ooo.gprPhysRegs == ParamProfiles.W8.ooo.gprPhysRegs)
-    assert(p.ooo.gprMapQDepthPerStid ==
-      ParamProfiles.W8.ooo.gprMapQDepthPerStid)
-    assert(p.ooo.tPhysRegs == ParamProfiles.W8.ooo.tPhysRegs)
-    assert(p.ooo.uPhysRegs == ParamProfiles.W8.ooo.uPhysRegs)
-    assert(p.ooo.tuMapQDepthPerStid ==
-      ParamProfiles.W8.ooo.tuMapQDepthPerStid)
+    assert(p.ooo.gprPhysRegs == 64)
+    assert(p.ooo.gprMapQDepthPerStid == 16)
+    assert(p.ooo.tPhysRegs == 16)
+    assert(p.ooo.uPhysRegs == 16)
+    assert(p.ooo.tuMapQDepthPerStid == 16)
     assert(p.iex.scalarIssueEntries == 8)
     assert((p.lsu.loadQueueEntries, p.lsu.storeQueueEntries) == (2, 2))
     assert(p.lsu.loadReturnQueueEntries == 2)
@@ -104,33 +101,52 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     val sim = SimulationParamProfiles.W8
 
     assert(sim.nativeBidWidth == main.nativeBidWidth)
-    assert(sim.ooo.robGroupsPerStid == main.ooo.robGroupsPerStid)
-    assert(sim.ooo.maxInstructionsPerRobGroup ==
-      main.ooo.maxInstructionsPerRobGroup)
-    assert(sim.ooo.gprPhysRegs == main.ooo.gprPhysRegs)
-    assert(sim.ooo.gprMapQDepthPerStid == main.ooo.gprMapQDepthPerStid)
-    assert(sim.ooo.tPhysRegs == main.ooo.tPhysRegs)
-    assert(sim.ooo.uPhysRegs == main.ooo.uPhysRegs)
-    assert(sim.ooo.tuMapQDepthPerStid == main.ooo.tuMapQDepthPerStid)
-    assert(sim.ooo.pcBufferEntries == main.ooo.pcBufferEntries)
+    assert(sim.ooo.stidIdentityEntries == main.ooo.stidIdentityEntries)
+    assert(sim.ooo.robIdentityGroupsPerStid ==
+      main.ooo.robIdentityGroupsPerStid)
+    assert(sim.ooo.robIdentityMembersPerGroup ==
+      main.ooo.robIdentityMembersPerGroup)
+    assert(sim.ooo.uopIdentityEntriesPerInstruction ==
+      main.ooo.uopIdentityEntriesPerInstruction)
+    assert(sim.ooo.brobIdentityEntriesPerStid ==
+      main.ooo.brobIdentityEntriesPerStid)
+    assert(sim.ooo.gprTagIdentityEntries == main.ooo.gprTagIdentityEntries)
+    assert(sim.ooo.tTagIdentityEntries == main.ooo.tTagIdentityEntries)
+    assert(sim.ooo.uTagIdentityEntries == main.ooo.uTagIdentityEntries)
+    assert(sim.ooo.robGroupsPerStid < main.ooo.robGroupsPerStid)
+    assert(sim.ooo.gprMapQDepthPerStid < main.ooo.gprMapQDepthPerStid)
+    assert(sim.ooo.pcBufferEntries < main.ooo.pcBufferEntries)
   }
 
-  test("W4 activation preserves every identity-defining production domain") {
+  test("W4 activation preserves public identity widths while bounding retained storage") {
     val main = ParamProfiles.W4
     val activation = OOOIEXLSUActivationParams.W4
+    val mainMechanism = MechanismOooParams.fromCoreParams(main)
+    val activationMechanism = MechanismOooParams.fromCoreParams(activation)
 
-    assert(activation.ooo.stidCount == main.ooo.stidCount)
-    assert(activation.ooo.robGroupsPerStid == main.ooo.robGroupsPerStid)
-    assert(activation.ooo.maxInstructionsPerRobGroup ==
-      main.ooo.maxInstructionsPerRobGroup)
-    assert(activation.ooo.maxUopsPerInstruction ==
-      main.ooo.maxUopsPerInstruction)
-    assert(activation.ooo.brobEntriesPerStid == main.ooo.brobEntriesPerStid)
-    assert(activation.ooo.gprPhysRegs == main.ooo.gprPhysRegs)
-    assert(activation.ooo.gprMapQDepthPerStid == main.ooo.gprMapQDepthPerStid)
-    assert(activation.ooo.tPhysRegs == main.ooo.tPhysRegs)
-    assert(activation.ooo.uPhysRegs == main.ooo.uPhysRegs)
-    assert(activation.ooo.tuMapQDepthPerStid == main.ooo.tuMapQDepthPerStid)
+    assert(activation.ooo.stidIdentityEntries == main.ooo.stidIdentityEntries)
+    assert(activation.ooo.robIdentityGroupsPerStid ==
+      main.ooo.robIdentityGroupsPerStid)
+    assert(activation.ooo.robIdentityMembersPerGroup ==
+      main.ooo.robIdentityMembersPerGroup)
+    assert(activation.ooo.uopIdentityEntriesPerInstruction ==
+      main.ooo.uopIdentityEntriesPerInstruction)
+    assert(activation.ooo.brobIdentityEntriesPerStid ==
+      main.ooo.brobIdentityEntriesPerStid)
+    assert(activation.ooo.gprTagIdentityEntries ==
+      main.ooo.gprTagIdentityEntries)
+    assert(activation.ooo.tTagIdentityEntries == main.ooo.tTagIdentityEntries)
+    assert(activation.ooo.uTagIdentityEntries == main.ooo.uTagIdentityEntries)
+    assert(activationMechanism.stidWidth == mainMechanism.stidWidth)
+    assert(activationMechanism.ridSlotWidth == mainMechanism.ridSlotWidth)
+    assert(activationMechanism.robMemberIndexWidth ==
+      mainMechanism.robMemberIndexWidth)
+    assert(activationMechanism.recipeUopCountWidth ==
+      mainMechanism.recipeUopCountWidth)
+    assert(activationMechanism.nativeBidWidth == mainMechanism.nativeBidWidth)
+    assert(activationMechanism.pTagWidth == mainMechanism.pTagWidth)
+    assert(activationMechanism.tTagWidth == mainMechanism.tTagWidth)
+    assert(activationMechanism.uTagWidth == mainMechanism.uTagWidth)
     assert(activation.nativeBidWidth == main.nativeBidWidth)
     assert(activation.ridGenerationWidth == main.ridGenerationWidth)
     assert(activation.brobGenerationWidth == main.brobGenerationWidth)
@@ -142,6 +158,35 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
       main.memoryTransactionGenerationWidth)
     assert(activation.memoryAttemptGenerationWidth ==
       main.memoryAttemptGenerationWidth)
+
+    assert(activation.ooo.stidCount == 2)
+    assert(activation.ooo.robGroupsPerStid == 8)
+    assert(activation.ooo.maxInstructionsPerRobGroup == 1)
+    assert(activation.ooo.maxUopsPerInstruction == 12)
+    assert(activation.ooo.brobEntriesPerStid == 8)
+    assert(activation.ooo.gprPhysRegs == 64)
+    assert(activation.ooo.tPhysRegs == 8)
+    assert(activation.ooo.uPhysRegs == 8)
+    assert(activation.ooo.gprMapQDepthPerStid < main.ooo.gprMapQDepthPerStid)
+    assert(activation.ooo.tuMapQDepthPerStid < main.ooo.tuMapQDepthPerStid)
+    assert(activation.iex.scalarIssueEntries < main.iex.scalarIssueEntries)
+    assert(activation.lsu.loadQueueEntries < main.lsu.loadQueueEntries)
+    assert(activation.lsu.storeQueueEntries < main.lsu.storeQueueEntries)
+  }
+
+  test("physical STQ ROB and full LSID capacities remain independent") {
+    val unequal = OOOIEXLSUActivationParams.W4.copy(
+      ooo = OOOIEXLSUActivationParams.W4.ooo.copy(robGroupsPerStid = 8),
+      lsu = OOOIEXLSUActivationParams.W4.lsu.copy(storeQueueEntries = 16),
+      lsidWidth = 40)
+    val mechanism = MechanismOooParams.fromCoreParams(unequal)
+
+    ParamChecks.validate(unequal)
+    assert(unequal.lsu.storeQueueEntries == 16)
+    assert(unequal.ooo.robGroupsPerStid == 8)
+    assert(unequal.ooo.robIdentityGroupsPerStid == 64)
+    assert(unequal.lsidWidth == 40)
+    assert(mechanism.ridSlotWidth == 6)
   }
 
   test("simulation capacity changes never mutate main profiles") {

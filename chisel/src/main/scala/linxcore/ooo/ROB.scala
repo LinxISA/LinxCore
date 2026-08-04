@@ -33,11 +33,11 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val recoveryCandidate = Input(Vec(2, Valid(new RecoveryCandidateLookup(p))))
   val recoveryCandidateStatus = Output(Vec(2, Valid(new RecoveryCandidateStatus(p))))
   val ridTailSlot = Output(Vec(p.ooo.stidCount,
-    UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)))
+    UInt(p.ooo.ridSlotWidth.W)))
   val ridTailGeneration = Output(Vec(p.ooo.stidCount,
     UInt(p.ridGenerationWidth.W)))
   val ridHeadSlot = Output(Vec(p.ooo.stidCount,
-    UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)))
+    UInt(p.ooo.ridSlotWidth.W)))
 }
 
 class ROB(val p: CoreParams) extends Module {
@@ -48,9 +48,9 @@ class ROB(val p: CoreParams) extends Module {
 
   val io = IO(new ROBIO(p))
 
-  private val stidWidth = InterfaceWidth.index(p.ooo.stidCount)
-  private val slotWidth = InterfaceWidth.index(p.ooo.robGroupsPerStid)
-  private val memberWidth = InterfaceWidth.index(p.ooo.maxInstructionsPerRobGroup)
+  private val stidWidth = p.ooo.stidWidth
+  private val slotWidth = p.ooo.ridSlotWidth
+  private val memberWidth = p.ooo.robMemberIndexWidth
   private val retireWidth = p.widths.retireWidth
   private val d3Width = p.ooo.d3PrefixWidth
   private val robRowsPerBank = p.ooo.robGroupsPerStid / p.ooo.robBankCount
@@ -78,7 +78,8 @@ class ROB(val p: CoreParams) extends Module {
   private def slotPlus(slot: UInt, add: UInt): (UInt, Bool) = {
     val sum = slot +& add
     val wrap = sum >= p.ooo.robGroupsPerStid.U
-    (sum(slotWidth - 1, 0), wrap)
+    (Mux(wrap, (sum - p.ooo.robGroupsPerStid.U)(slotWidth - 1, 0),
+      sum(slotWidth - 1, 0)), wrap)
   }
 
   val state = RegInit(VecInit(Seq.fill(p.ooo.stidCount) {

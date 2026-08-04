@@ -9,7 +9,9 @@ from pathlib import Path
 
 
 WIDTHS = ("W2", "W4", "W6", "W8")
-TARGET_CODES = {"W002", "W004"}
+# No warning is accepted by default. Add an entry only for a narrowly scoped,
+# reviewed warning whose exact code is unavoidable and documented.
+ALLOWLIST_CODES: set[str] = set()
 MARKER = re.compile(r"TASK15_WARNING_MATRIX_(BEGIN|END) (W[2468])")
 WARNING = re.compile(r"\[(W\d{3})\]")
 
@@ -59,16 +61,18 @@ def main() -> int:
     failed = False
     for width in WIDTHS:
         codes = [WARNING.search(line).group(1) for line in sections[width]]
-        target = [code for code in codes if code in TARGET_CODES]
-        other = [code for code in codes if code not in TARGET_CODES]
-        status = "fail" if target else "pass"
-        failed |= bool(target)
+        allowed = [code for code in codes if code in ALLOWLIST_CODES]
+        rejected = [code for code in codes if code not in ALLOWLIST_CODES]
+        status = "fail" if rejected else "pass"
+        failed |= bool(rejected)
         print(
             f"task15-warning-matrix width={width} status={status} "
-            f"target={','.join(target) or 'none'} other={','.join(other) or 'none'}"
+            f"rejected={','.join(rejected) or 'none'} "
+            f"allowed={','.join(allowed) or 'none'}"
         )
     outside_codes = [WARNING.search(line).group(1) for line in outside]
     print(f"task15-warning-matrix outside={','.join(outside_codes) or 'none'}")
+    failed |= any(code not in ALLOWLIST_CODES for code in outside_codes)
     return 1 if failed else 0
 
 

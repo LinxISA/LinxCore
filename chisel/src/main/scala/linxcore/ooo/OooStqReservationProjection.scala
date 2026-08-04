@@ -16,7 +16,7 @@ class OooStqReservationProjectionIO(
   val reserveMask = Output(UInt(p.maxMemoryRequestsPerInstruction.W))
   val reserve = Output(Vec(p.maxMemoryRequestsPerInstruction,
     new STQStoreRequest(
-      p.robGroupsPerStid,
+      p.robIdentityGroupsPerStid,
       peIdWidth = p.peIdWidth,
       stidWidth = p.stidWidth,
       tidWidth = p.stidWidth,

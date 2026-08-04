@@ -15,7 +15,7 @@ class OooStqRecoveryProjectionIO(
   val prepareValid = Input(Bool())
   val prepare = Input(new RecoveryPlan(core))
   val rows = Input(Vec(stqEntries, new STQEntryBankRow(
-    p.robGroupsPerStid,
+    p.robIdentityGroupsPerStid,
     peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth,
     tidWidth = p.stidWidth,

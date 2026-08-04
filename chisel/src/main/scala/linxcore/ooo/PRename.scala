@@ -6,7 +6,7 @@ import linxcore.params.CoreParams
 import linxcore.top.interface._
 
 private[ooo] object PRename {
-  def tagWidth(p: CoreParams): Int = math.max(1, log2Ceil(p.ooo.gprPhysRegs))
+  def tagWidth(p: CoreParams): Int = p.ooo.gprTagWidth
   def committedTag(p: CoreParams, stid: Int, atag: Int): Int =
     stid * p.ooo.gprArchRegs + atag
   def isCommittedResetTag(p: CoreParams, tag: UInt): Bool =
@@ -19,7 +19,7 @@ private[ooo] class PRenameIO(val p: CoreParams) extends Bundle {
   val prepared = Output(new D3RenameGroup(p))
   val reserve = Flipped(Valid(new D3RenameGroup(p)))
   val publish = Flipped(Valid(new D3RenameGroup(p)))
-  val cancel = Flipped(Valid(UInt(math.max(1, log2Ceil(p.ooo.stidCount)).W)))
+  val cancel = Flipped(Valid(UInt(p.ooo.stidWidth.W)))
   val release = Flipped(Valid(new RenameCommitReleaseTxn(p)))
   val releaseExact = Output(Bool())
   val releaseApply = Input(Bool())
@@ -39,8 +39,9 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
 
   private val width = p.widths.decodeWidth
   private val pTagWidth = PRename.tagWidth(p)
+  private val physicalPTagWidth = math.max(1, log2Ceil(p.ooo.gprPhysRegs))
   private val archIndexWidth = math.max(1, log2Ceil(p.ooo.gprArchRegs))
-  private val stidWidth = math.max(1, log2Ceil(p.ooo.stidCount))
+  private val physicalStidWidth = math.max(1, log2Ceil(p.ooo.stidCount))
   private val mapQIndexWidth = math.max(1, log2Ceil(p.ooo.gprMapQDepthPerStid))
   private val mapQCountWidth = math.max(1, log2Ceil(p.ooo.gprMapQDepthPerStid + 1))
   private val pDestSlots = width * p.maxDestinationOperands
@@ -52,8 +53,15 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
     else Cat(0.U((width - value.getWidth).W), value)
 
   private def safeAtag(value: UInt): UInt = trunc(value, archIndexWidth)
+  private def ptagInRange(value: UInt): Bool = value < p.ooo.gprPhysRegs.U
+  private def physicalPtag(value: UInt): UInt =
+    value(physicalPTagWidth - 1, 0)
+  private def generationFor(value: UInt): UInt =
+    Mux(ptagInRange(value), generations(physicalPtag(value)),
+      0.U(p.ooo.gprTagGenerationWidth.W))
   private def safeStid(value: UInt): UInt =
-    if (p.ooo.stidCount == 1) 0.U(stidWidth.W) else trunc(value, stidWidth)
+    if (p.ooo.stidCount == 1) 0.U(physicalStidWidth.W)
+    else trunc(value, physicalStidWidth)
 
   private def sameRob(a: RobIdentity, b: RobIdentity): Bool =
     a.asUInt === b.asUInt
@@ -180,7 +188,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
         val gen = Wire(UInt(p.ooo.gprTagGenerationWidth.W))
         val forwarded = Wire(Bool())
         tag := smap(stid)(atag)
-        gen := generations(tag)
+        gen := generationFor(tag)
         forwarded := false.B
         for (flat <- 0 until lane * p.maxDestinationOperands) {
           val olderDest = in.entries(flat / p.maxDestinationOperands)
@@ -194,7 +202,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
         out.ptag := tag
         out.pGeneration := gen
         out.ptagValid := true.B
-        out.ready := !forwarded
+        out.ready := !forwarded && ptagInRange(tag)
       }
     }
     for (dest <- 0 until p.maxDestinationOperands) {
@@ -221,13 +229,13 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
         dout.ptag := allocatedTag(flat)
         dout.previousPtag := previous
         dout.pGeneration := allocatedGen(flat)
-        dout.previousPGeneration := generations(previous)
+        dout.previousPGeneration := generationFor(previous)
         dout.previousPtagValid := true.B
         dout.ptagValid := true.B
         hist.ptag := allocatedTag(flat)
         hist.previousPtag := previous
         hist.pGeneration := allocatedGen(flat)
-        hist.previousPGeneration := generations(previous)
+        hist.previousPGeneration := generationFor(previous)
         val ordinal = PopCount(destActive.take(flat))
         val indexSum = tail(stid) +& ordinal
         hist.pMapQIndex := trunc(indexSum, mapQIndexWidth)
@@ -249,7 +257,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
           val hist = lease.entries(lane).history(dest)
           when(hist.valid && hist.kind === OperandKind.Gpr &&
             hist.ptag < p.ooo.gprPhysRegs.U) {
-            reserved(hist.ptag) := true.B
+            reserved(physicalPtag(hist.ptag)) := true.B
           }
         }
       }
@@ -266,7 +274,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
             val hist = lease.entries(lane).history(dest)
             when(hist.valid && hist.kind === OperandKind.Gpr &&
               hist.ptag < p.ooo.gprPhysRegs.U) {
-              reserved(hist.ptag) := false.B
+              reserved(physicalPtag(hist.ptag)) := false.B
             }
           }
         }
@@ -311,8 +319,8 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
               mapQIndexWidth)
             mapQ(pubStid)(idx) := row
             smap(pubStid)(safeAtag(hist.atag)) := hist.ptag
-            free(hist.ptag) := false.B
-            reserved(hist.ptag) := false.B
+            free(physicalPtag(hist.ptag)) := false.B
+            reserved(physicalPtag(hist.ptag)) := false.B
             published(flat) := true.B
           }
         }
@@ -377,8 +385,9 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
       rel.rob.asUInt === row.rob.asUInt &&
       hist.asUInt === row.history(dest).asUInt &&
       hist.pMapQIndex === rowIndex &&
-      hist.pGeneration === generations(hist.ptag) &&
-      hist.previousPGeneration === generations(hist.previousPtag)
+      ptagInRange(hist.ptag) && ptagInRange(hist.previousPtag) &&
+      hist.pGeneration === generationFor(hist.ptag) &&
+      hist.previousPGeneration === generationFor(hist.previousPtag)
   }
   val releaseAllExact = !releaseWanted.asUInt.orR ||
     (releaseWanted.asUInt === releaseExact.asUInt)
@@ -396,8 +405,9 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
       when(releaseAccept(flat)) {
         cmap(st)(safeAtag(hist.atag)) := hist.ptag
         when(!PRename.isCommittedResetTag(p, hist.previousPtag)) {
-          free(hist.previousPtag) := true.B
-          generations(hist.previousPtag) := generations(hist.previousPtag) + 1.U
+          val previousIndex = physicalPtag(hist.previousPtag)
+          free(previousIndex) := true.B
+          generations(previousIndex) := generations(previousIndex) + 1.U
         }
       }
     }
@@ -453,7 +463,7 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
         for (dest <- 0 until p.maxDestinationOperands) {
           val hist = row.history(dest)
           when(hist.valid && hist.kind === OperandKind.Gpr &&
-            hist.atag < p.ooo.gprArchRegs.U) {
+            hist.atag < p.ooo.gprArchRegs.U && ptagInRange(hist.ptag)) {
             smap(target)(safeAtag(hist.atag)) := hist.ptag
           }
         }
@@ -465,8 +475,9 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
           when(hist.valid && hist.kind === OperandKind.Gpr &&
             hist.ptag < p.ooo.gprPhysRegs.U &&
             !PRename.isCommittedResetTag(p, hist.ptag)) {
-            free(hist.ptag) := true.B
-            generations(hist.ptag) := generations(hist.ptag) + 1.U
+            val tagIndex = physicalPtag(hist.ptag)
+            free(tagIndex) := true.B
+            generations(tagIndex) := generations(tagIndex) + 1.U
           }
         }
       }

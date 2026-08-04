@@ -1608,7 +1608,7 @@ Promotion gate: R557 replay-loop fixture, R558
   `replay-ldi-sdi-ldi-ldi-ldi-ldi-loop`, R561/R562/R563/R564/R565
   phase-distance, identity, and different-LSID near-miss sideband, or a stronger
   multiple-return-load phasing fixture through
-  run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh with v24 sideband
+  historical v24 fetch/RF/ALU QEMU wrapper evidence (the wrapper is deleted)
   inspection requiring nonzero source-return, LRET-payload, publish-control,
   and LRET-sink enqueue overlap while W2 is occupied, then nonzero LRET sink
   pending/drain and IEX insert/residency/W1
@@ -1705,7 +1705,7 @@ Closeout evidence: unit log, generated-RTL/QEMU manifest, sideband counters,
 | 0. Wrapper and static sanity | Any Chisel, adapter, or fixture edit | `bash tools/chisel/build_chisel.sh`; touched Python adapter self-tests; relevant `--dry-run` wrapper | Build and wrapper selection work without entering a broad compare |
 | 1. Module contract | One module or bundle owner changed | `bash tools/chisel/run_chisel_tests.sh --only <Module>`; `bash tools/chisel/run_chisel_rob_bookkeeping.sh --robid-only` for ROBID/ROB semantics | The assigned module contract is green |
 | 2. Adjacent generated RTL | Composition, top, monitor, or trace-owner changed | `bash tools/chisel/run_chisel_verilator_lint.sh`; nearest `run_chisel_*_xcheck.sh` wrapper | Generated RTL elaborates and the nearest harness compare is green |
-| 3. QEMU row replay | The packet claims architectural row equivalence | `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh ...`; `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh ...` | `crosscheck_manifest.json` shows zero mismatches and records raw/arch row counts |
+| 3. Canonical frontend trace comparison | The packet claims architectural row equivalence | `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh` | `crosscheck_manifest.json` shows zero mismatches and records raw/arch row counts |
 | 4. Model/toolchain convergence | Workload behavior or model parity is part of the claim | From superproject: `python3 tools/bringup/run_ai_workload_flow.py --profile smoke ...`; `python3 tools/bringup/run_benchmark_linux_flow.py --profile pr ...`; `model/LinxCoreModel/bin/gfsim -f <elf>` only after the same ELF passed QEMU | QEMU-passing ELF also passes the selected model or workload profile |
 | 5. Closure | PR, submodule pin, or cross-lane behavior changed | `tests/test_stage_connectivity.sh`; `tests/test_runner_protocol.sh`; `tests/test_cosim_smoke.sh`; `tests/test_opcode_parity.sh`; `tests/test_trace_schema_and_mem.sh`; `tests/test_rob_bookkeeping.sh`; `tests/test_block_struct_pyc_flow.sh`; superproject strict closure | All required cross-repo gates for the claim pass |
 

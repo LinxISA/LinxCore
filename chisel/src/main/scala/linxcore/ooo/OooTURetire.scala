@@ -387,7 +387,9 @@ class OooTURetire(val p: OooParams = OooParams()) extends Module {
     record.valid === active && (!active || (record.key.valid &&
       record.key.peId === incomingBatch.release.firstGroup.peId &&
       record.key.stid === incomingStid &&
-      record.key.ridSlot === slotSum(p.ridSlotWidth - 1, 0) &&
+      record.key.ridSlot === Mux(wraps,
+        (slotSum - p.robGroupsPerStid.U)(p.ridSlotWidth - 1, 0),
+        slotSum(p.ridSlotWidth - 1, 0)) &&
       record.key.ridGeneration ===
         incomingBatch.release.firstGroup.ridGeneration + wraps.asUInt &&
       record.brob.valid && record.brob.bid.valid &&

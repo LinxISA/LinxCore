@@ -24,8 +24,8 @@ class DecodedPacket(val p: CoreParams) extends Bundle {
 class VirtualRobGroupIntent(val p: CoreParams) extends Bundle {
   val valid = Bool()
   val peId = UInt(p.peIdWidth.W)
-  val stid = UInt(math.max(1, log2Ceil(p.ooo.stidCount)).W)
-  val ridSlot = UInt(math.max(1, log2Ceil(p.ooo.robGroupsPerStid)).W)
+  val stid = UInt(p.ooo.stidWidth.W)
+  val ridSlot = UInt(p.ooo.ridSlotWidth.W)
   val ridGeneration = UInt(p.ridGenerationWidth.W)
 }
 
@@ -54,7 +54,7 @@ class D2AdmissionGroup(val p: CoreParams) extends Bundle {
 class OOOD1D2IO(val p: CoreParams) extends Bundle {
   val fromCtu = Flipped(Decoupled(new D1Packet(p)))
   val ridTailSlot = Input(Vec(p.ooo.stidCount,
-    UInt(math.max(1, log2Ceil(p.ooo.robGroupsPerStid)).W)))
+    UInt(p.ooo.ridSlotWidth.W)))
   val ridTailGeneration = Input(Vec(p.ooo.stidCount,
     UInt(p.ridGenerationWidth.W)))
   val recovery = Flipped(new RecoveryTargetIO(p))

@@ -1,8 +1,7 @@
 package linxcore.iex
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, PriorityEncoder, UIntToOH, Valid,
-  log2Ceil}
+import chisel3.util.{Decoupled, PopCount, Valid, log2Ceil}
 
 import linxcore.common.{CoreParams, DestinationKind, OperandClass}
 import linxcore.lsu.{LoadAttemptIdentity, LoadCanonicalRowIdentity,
@@ -69,8 +68,6 @@ class OooIexLoadTerminalMetadataEntry(
   val valid = Bool()
   val loadId = new LoadCanonicalRowIdentity
   val attempt = new LoadAttemptIdentity
-  val canceledAttemptValid = UInt(2.W)
-  val canceledAttempt = Vec(2, new LoadAttemptIdentity)
   val load = new OooIexLoadGeneration(p)
   val request = new OooIexAguLoadRequest(p)
   val lane = UInt(math.max(1, log2Ceil(laneCount)).W)
@@ -162,7 +159,7 @@ class OooIexLoadTerminalMetadata(
 
   require(lsu.stidCount == p.stidCount,
     "OOO and canonical scalar LSU must share the STID population")
-  require(coreParams.robEntries >= p.robGroupsPerStid,
+  require(coreParams.robEntries >= p.robIdentityGroupsPerStid,
     "canonical LSU ROB projection must cover every OOO RID slot")
   require(p.pcWidth <= lsu.pcWidth && p.peIdWidth <= lsu.peIdWidth &&
     p.stidWidth <= lsu.stidWidth && p.archRegWidth <= lsu.archRegWidth &&
@@ -334,18 +331,6 @@ class OooIexLoadTerminalMetadata(
   val completionExact = completionIdValid && completionProducerExact &&
     completionAttemptExact && completionTransactionExact &&
     completionPipeExact && completionDestinationExact && completionOutcomeExact
-  val completionCanceledAttemptMatch = VecInit(
-    completionEntry.canceledAttempt.zipWithIndex.map { case (attempt, index) =>
-      completionResident && completionEntry.canceledAttemptValid(index) &&
-        LoadAttemptIdentity.equal(io.completion.bits.payload.attempt, attempt)
-    })
-  val completionCanceledAttemptExact = completionCanceledAttemptMatch.asUInt.orR
-  val completionCanceledAttemptIndex = PriorityEncoder(
-    completionCanceledAttemptMatch.asUInt)
-  val completionStaleAttempt = completionIdValid && completionProducerExact &&
-    completionCanceledAttemptExact && completionTransactionExact &&
-    completionPipeExact && completionDestinationExact && completionOutcomeExact
-
   val completionFence = recoveryFences(io.completion.bits.stid)
   io.result.valid := io.completion.valid && completionExact && !completionFence
   io.result.bits := 0.U.asTypeOf(io.result.bits)
@@ -427,7 +412,6 @@ class OooIexLoadTerminalMetadata(
   val completionTargetsRebind = io.completion.valid && completionIdValid &&
     LoadCanonicalRowIdentity.equal(completionId, rebindId)
   val rebindExact = rebindCurrentExact && rebindNextExact
-  val rebindTombstonesFull = rebindEntry.canceledAttemptValid.andR
   val rebindFence = recoveryFences(
     io.rebind.bits.currentLoad.producer.group.stid)
   val faultCancelPublish = io.completion.valid && completionExact &&
@@ -439,7 +423,7 @@ class OooIexLoadTerminalMetadata(
   val cancelCollision = io.rebind.valid && cancelCollisionCandidate
   io.cancelCollision := cancelCollision
   io.rebind.ready := !rebindFence && rebindExact && !completionTargetsRebind &&
-    !cancelCollisionCandidate && !rebindTombstonesFull
+    !cancelCollisionCandidate
 
   io.loadCancel.foreach(_ := 0.U.asTypeOf(io.loadCancel.head))
   for (lane <- 0 until laneCount) {
@@ -577,19 +561,9 @@ class OooIexLoadTerminalMetadata(
     entries(completionIndex) := zeroEntry
   }
   when(io.rebind.fire) {
-    val tombstoneIndex = PriorityEncoder(~rebindEntry.canceledAttemptValid)
-    entries(rebindIndex).canceledAttemptValid :=
-      rebindEntry.canceledAttemptValid | UIntToOH(tombstoneIndex, 2)
-    entries(rebindIndex).canceledAttempt(tombstoneIndex) :=
-      io.rebind.bits.currentAttempt
     entries(rebindIndex).attempt := io.rebind.bits.nextAttempt
     entries(rebindIndex).load := io.rebind.bits.nextLoad
     entries(rebindIndex).faultCancelSent := false.B
-  }
-  when(io.completion.fire && completionStaleAttempt) {
-    entries(completionIndex).canceledAttemptValid :=
-      completionEntry.canceledAttemptValid &
-        ~UIntToOH(completionCanceledAttemptIndex, 2)
   }
   when(faultCancelPublish && !io.result.fire) {
     entries(completionIndex).faultCancelSent := true.B
@@ -598,8 +572,6 @@ class OooIexLoadTerminalMetadata(
     entries(allocIndex).valid := true.B
     entries(allocIndex).loadId := io.alloc.bits.loadId
     entries(allocIndex).attempt := io.alloc.bits.attempt
-    entries(allocIndex).canceledAttemptValid := 0.U
-    entries(allocIndex).canceledAttempt.foreach(_ := LoadAttemptIdentity.none)
     entries(allocIndex).load := io.alloc.bits.load
     entries(allocIndex).request := io.alloc.bits.request
     entries(allocIndex).lane := io.alloc.bits.lane

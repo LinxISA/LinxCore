@@ -9,9 +9,8 @@ import linxcore.top.interface._
 private[ooo] class OOOD1D2Stage(val p: CoreParams) extends Module {
   val io = IO(new OOOD1D2IO(p))
   private val width = p.widths.decodeWidth
-  private val stidWidth = math.max(1, chisel3.util.log2Ceil(p.ooo.stidCount))
-  private val ridSlotWidth =
-    math.max(1, chisel3.util.log2Ceil(p.ooo.robGroupsPerStid))
+  private val stidWidth = p.ooo.stidWidth
+  private val ridSlotWidth = p.ooo.ridSlotWidth
   private def select[T <: Data](values: Vec[T], index: UInt): T =
     if (p.ooo.stidCount == 1) values(0) else values(index)
 
@@ -85,8 +84,7 @@ private[ooo] class OOOD1D2Stage(val p: CoreParams) extends Module {
   val assignedGroup = Wire(Vec(width,
     UInt(PrefixPacketContract.countWidth(width).W)))
   val assignedMember = Wire(Vec(width,
-    UInt(math.max(1, chisel3.util.log2Ceil(
-      p.ooo.maxInstructionsPerRobGroup)).W)))
+    UInt(p.ooo.robMemberIndexWidth.W)))
   stateGroup(0) := 0.U
   stateMembers(0) := 0.U
   stateClosed(0) := false.B
@@ -122,7 +120,9 @@ private[ooo] class OOOD1D2Stage(val p: CoreParams) extends Module {
     admission.groups(group).peId :=
       dec.io.out.bits.entries(0).uop.instruction.parent.identity.peId
     admission.groups(group).stid := inputStid
-    admission.groups(group).ridSlot := slotSum(ridSlotWidth - 1, 0)
+    admission.groups(group).ridSlot := Mux(wraps,
+      (slotSum - p.ooo.robGroupsPerStid.U)(ridSlotWidth - 1, 0),
+      slotSum(ridSlotWidth - 1, 0))
     admission.groups(group).ridGeneration :=
       select(io.ridTailGeneration, inputStid) + wraps.asUInt
   }
@@ -135,7 +135,9 @@ private[ooo] class OOOD1D2Stage(val p: CoreParams) extends Module {
       dec.io.out.bits.entries(lane).uop.instruction.parent.identity.peId
     admission.entries(lane).uop.rob.stid :=
       dec.io.out.bits.entries(lane).uop.instruction.parent.identity.stid
-    admission.entries(lane).uop.rob.ridSlot := slotSum(ridSlotWidth - 1, 0)
+    admission.entries(lane).uop.rob.ridSlot := Mux(wraps,
+      (slotSum - p.ooo.robGroupsPerStid.U)(ridSlotWidth - 1, 0),
+      slotSum(ridSlotWidth - 1, 0))
     admission.entries(lane).uop.rob.ridGeneration :=
       select(io.ridTailGeneration, inputStid) + wraps.asUInt
     admission.entries(lane).uop.rob.memberIndex := assignedMember(lane)

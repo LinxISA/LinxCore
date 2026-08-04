@@ -14,7 +14,7 @@ class PcBufferIndexOffset(val p: CoreParams) extends Bundle {
 /** Readyless I1 read address for the OOO-owned PC buffer. */
 class PcBufferReadAddress(val p: CoreParams) extends Bundle {
   val valid = Bool()
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val stid = UInt(p.ooo.stidWidth.W)
   val pcBufferIndex = UInt(InterfaceWidth.index(p.ooo.pcBufferEntries).W)
   val allocationEpoch = UInt(p.ooo.pcAllocationEpochWidth.W)
 }

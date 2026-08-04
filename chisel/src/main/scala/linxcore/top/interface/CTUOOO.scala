@@ -80,8 +80,7 @@ class DecodedDestination(val p: CoreParams) extends Bundle {
   * those decisions from opcode or queue placement.
   */
 class UopClassification(val p: CoreParams) extends Bundle {
-  private val uopCountWidth =
-    PrefixPacketContract.countWidth(p.ooo.maxUopsPerInstruction)
+  private val uopCountWidth = p.ooo.recipeUopCountWidth
   private val dispatchCountWidth =
     PrefixPacketContract.countWidth(p.widths.dispatchWidth)
   private val sourceCountWidth =

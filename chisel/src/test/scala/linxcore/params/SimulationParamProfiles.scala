@@ -16,6 +16,11 @@ object SimulationParamProfiles {
     val main = ParamProfiles.forWidth(width)
     val prefixCapacity = nextPowerOfTwo(width)
     val issueCapacity = math.max(4, prefixCapacity)
+    val destinationCapacity = nextPowerOfTwo(
+      width * main.maxDestinationOperands)
+    val pcCapacity = math.max(4, prefixCapacity)
+    val gprPhysicalCapacity = nextPowerOfTwo(
+      main.ooo.stidCount * main.ooo.gprArchRegs + destinationCapacity)
 
     main.copy(
       ifu = main.ifu.copy(
@@ -25,8 +30,19 @@ object SimulationParamProfiles {
         instructionBufferEntries = prefixCapacity,
         maxTemplateUops = 2),
       ooo = main.ooo.copy(
+        robGroupsPerStid = prefixCapacity,
+        maxInstructionsPerRobGroup = 1,
+        maxUopsPerInstruction = 12,
         robBankCount = prefixCapacity,
-        pcRecoveryScanGroupsPerCycle = math.min(4, prefixCapacity)),
+        brobEntriesPerStid = prefixCapacity,
+        pcBufferEntries = pcCapacity,
+        pcBankCount = pcCapacity,
+        pcRecoveryScanGroupsPerCycle = math.min(4, prefixCapacity),
+        gprPhysRegs = gprPhysicalCapacity,
+        gprMapQDepthPerStid = destinationCapacity,
+        tPhysRegs = destinationCapacity,
+        uPhysRegs = destinationCapacity,
+        tuMapQDepthPerStid = destinationCapacity),
       iex = main.iex.copy(scalarIssueEntries = issueCapacity),
       lsu = main.lsu.copy(
         loadQueueEntries = 2,

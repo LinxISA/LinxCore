@@ -2,6 +2,7 @@ package linxcore.iex
 
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
+import chisel3.util.log2Ceil
 import linxcore.ooo.{OooDispatchClass, OooIexDomainCapability, OooIexIssue,
   OooIexIssueIO, OooIexIssueSlotState, OooIexPhysicalProfile,
   OooLateSplitKind, OooOpcodeDisposition, OooOpcodeRecipeKind,
@@ -428,6 +429,93 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryRows(0).sources(0).ptagGeneration.expect(9.U)
       dut.io.queryRows(0).sources(0).ready.expect(false.B)
       dut.io.queryPickables(0).expect(false.B)
+    }
+  }
+
+  test("unequal identity and physical tag capacities reject aliases for P T and U readiness") {
+    simulate(new OooIexIssue(core)) { dut =>
+      clearControls(dut)
+      assert(physical.pTagWidth > log2Ceil(physical.pPhysRegs))
+      assert(physical.tTagWidth > log2Ceil(physical.tPhysRegs))
+      assert(physical.uTagWidth > log2Ceil(physical.uPhysRegs))
+
+      def configureLocalSource(
+          source: linxcore.top.interface.RenamedSource,
+          kind: OperandKind.Type,
+          tag: Int,
+          sequenceIndex: Int,
+          sequenceGeneration: Int): Unit = {
+        source.valid.poke(true.B)
+        source.kind.poke(kind)
+        source.ready.poke(false.B)
+        if (kind == OperandKind.T) {
+          source.ttagValid.poke(true.B)
+          source.ttag.poke(tag.U)
+          source.tSeqIndex.poke(sequenceIndex.U)
+          source.tSeqGeneration.poke(sequenceGeneration.U)
+        } else {
+          source.utagValid.poke(true.B)
+          source.utag.poke(tag.U)
+          source.uSeqIndex.poke(sequenceIndex.U)
+          source.uSeqGeneration.poke(sequenceGeneration.U)
+        }
+      }
+
+      def configureLocalReady(
+          entry: linxcore.ooo.OooIexLocalReadyBitsEntry,
+          sequenceIndex: Int,
+          sequenceGeneration: Int): Unit = {
+        entry.allocated.poke(true.B)
+        entry.ready.poke(true.B)
+        entry.epoch.poke(7.U)
+        entry.sequence.valid.poke(true.B)
+        entry.sequence.index.poke(sequenceIndex.U)
+        entry.sequence.generation.poke(sequenceGeneration.U)
+      }
+
+      val channel = dut.io.dispatch.aluDispatch(0)
+      pokeDispatch(dut, channel.bits, transactionId = 75,
+        uopClass = UopClass.Alu, sourceReady = false)
+      configureLocalSource(channel.bits.uop.sources(1), OperandKind.T,
+        tag = 3, sequenceIndex = 1, sequenceGeneration = 2)
+      configureLocalSource(channel.bits.uop.sources(2), OperandKind.U,
+        tag = 4, sequenceIndex = 3, sequenceGeneration = 4)
+      dut.io.operandReadyBits.ptag(17).ready.poke(true.B)
+      configureLocalReady(dut.io.operandReadyBits.ttag(0)(3),
+        sequenceIndex = 1, sequenceGeneration = 2)
+      configureLocalReady(dut.io.operandReadyBits.utag(0)(4),
+        sequenceIndex = 3, sequenceGeneration = 4)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+      findResidentByTransaction(dut, OooUopClass.Alu, 75)
+      dut.io.queryRows(0).sources(0).ready.expect(true.B)
+      dut.io.queryRows(0).sources(1).ready.expect(true.B)
+      dut.io.queryRows(0).sources(2).ready.expect(true.B)
+
+      pokeDispatch(dut, channel.bits, transactionId = 76,
+        uopClass = UopClass.Alu, sourceReady = false)
+      channel.bits.uop.sources(0).ptag.poke(physical.pPhysRegs.U)
+      configureLocalSource(channel.bits.uop.sources(1), OperandKind.T,
+        tag = physical.tPhysRegs, sequenceIndex = 5,
+        sequenceGeneration = 6)
+      configureLocalSource(channel.bits.uop.sources(2), OperandKind.U,
+        tag = physical.uPhysRegs, sequenceIndex = 7,
+        sequenceGeneration = 8)
+      dut.io.operandReadyBits.ptag(0).valid.poke(true.B)
+      dut.io.operandReadyBits.ptag(0).ready.poke(true.B)
+      dut.io.operandReadyBits.ptag(0).stid.poke(0.U)
+      dut.io.operandReadyBits.ptag(0).epoch.poke(7.U)
+      dut.io.operandReadyBits.ptag(0).generation.poke(9.U)
+      configureLocalReady(dut.io.operandReadyBits.ttag(0)(0),
+        sequenceIndex = 5, sequenceGeneration = 6)
+      configureLocalReady(dut.io.operandReadyBits.utag(0)(0),
+        sequenceIndex = 7, sequenceGeneration = 8)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+      findResidentByTransaction(dut, OooUopClass.Alu, 76)
+      dut.io.queryRows(0).sources(0).ready.expect(false.B)
+      dut.io.queryRows(0).sources(1).ready.expect(false.B)
+      dut.io.queryRows(0).sources(2).ready.expect(false.B)
     }
   }
 

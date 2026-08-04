@@ -26,9 +26,18 @@ class BROBIO(val p: CoreParams) extends Bundle {
 class BROB(val p: CoreParams) extends Module {
   val io = IO(new BROBIO(p))
 
-  private val stidWidth = InterfaceWidth.index(p.ooo.stidCount)
+  private val physicalStidWidth = math.max(1, log2Ceil(p.ooo.stidCount))
+  private val physicalBidWidth = math.max(1,
+    log2Ceil(p.ooo.brobEntriesPerStid))
   private def safeStid(stid: UInt): UInt =
-    if (p.ooo.stidCount == 1) 0.U(stidWidth.W) else stid
+    if (p.ooo.stidCount == 1) 0.U(physicalStidWidth.W)
+    else stid(physicalStidWidth - 1, 0)
+  private def bidInRange(bid: UInt): Bool =
+    bid < p.ooo.brobEntriesPerStid.U
+  private def physicalBid(bid: UInt): UInt =
+    bid(physicalBidWidth - 1, 0)
+  private def safePhysicalBid(bid: UInt): UInt =
+    Mux(bidInRange(bid), physicalBid(bid), 0.U(physicalBidWidth.W))
 
   val used = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     0.U(PrefixPacketContract.countWidth(p.ooo.brobEntriesPerStid).W))))
@@ -56,7 +65,9 @@ class BROB(val p: CoreParams) extends Module {
   val headGeneration = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(
     0.U(p.brobGenerationWidth.W))))
 
-  val stid = safeStid(io.prepare.bits.entries(0).uop.decoded.rob.stid)
+  val prepareStidRaw = io.prepare.bits.entries(0).uop.decoded.rob.stid
+  val prepareStidInRange = prepareStidRaw < p.ooo.stidCount.U
+  val stid = safeStid(prepareStidRaw)
   val prepared = Wire(new BROBPrepared(p))
   prepared := 0.U.asTypeOf(prepared)
   prepared.count := io.prepare.bits.count
@@ -74,8 +85,9 @@ class BROB(val p: CoreParams) extends Module {
   scanCurrentBid(0) := currentBid(stid)
   scanCurrentGen(0) := currentGeneration(stid)
   scanCurrentResident(0) := currentValid(stid) &&
-    tableValid(stid)(currentBid(stid)) &&
-    tableGeneration(stid)(currentBid(stid)) === currentGeneration(stid)
+    tableValid(stid)(physicalBid(currentBid(stid))) &&
+    tableGeneration(stid)(physicalBid(currentBid(stid))) ===
+      currentGeneration(stid)
   allocCount(0) := 0.U
   for (lane <- 0 until p.ooo.d3PrefixWidth) {
     val active = lane.U < io.prepare.bits.count
@@ -97,7 +109,8 @@ class BROB(val p: CoreParams) extends Module {
     prepared.entries(lane).allocated := allocatesBlock
     val nextTailWide = scanTail(lane) +& allocatesBlock.asUInt
     val wrap = nextTailWide >= p.ooo.brobEntriesPerStid.U
-    scanTail(lane + 1) := nextTailWide(p.nativeBidWidth - 1, 0)
+    scanTail(lane + 1) := Mux(wrap, 0.U(p.nativeBidWidth.W),
+      physicalBid(nextTailWide))
     scanGen(lane + 1) := scanGen(lane) + wrap.asUInt
     scanCurrentValid(lane + 1) := Mux(active, !stopsBlock, scanCurrentValid(lane))
     scanCurrentBid(lane + 1) := Mux(allocatesBlock, bid, scanCurrentBid(lane))
@@ -142,6 +155,7 @@ class BROB(val p: CoreParams) extends Module {
   val recoverySurvivingTailReg = Reg(new RobIdentity(p))
 
   io.prepare.ready := !recoveryPending &&
+    prepareStidInRange &&
     io.prepare.bits.count <= p.ooo.d3PrefixWidth.U &&
     used(stid) + allocCount(p.ooo.d3PrefixWidth) <= p.ooo.brobEntriesPerStid.U &&
     publicationExact
@@ -156,29 +170,30 @@ class BROB(val p: CoreParams) extends Module {
     for (lane <- 0 until p.ooo.d3PrefixWidth) {
       when(prepared.entries(lane).valid && prepared.entries(lane).allocated) {
         val boundRob = io.robPrepared.entries(lane).rob
-        tableValid(stid)(prepared.entries(lane).bid) := true.B
-        tableGeneration(stid)(prepared.entries(lane).bid) :=
+        val preparedBid = physicalBid(prepared.entries(lane).bid)
+        tableValid(stid)(preparedBid) := true.B
+        tableGeneration(stid)(preparedBid) :=
           prepared.entries(lane).brobGeneration
-        tableClosed(stid)(prepared.entries(lane).bid) := false.B
-        tableFirstRob(stid)(prepared.entries(lane).bid) :=
+        tableClosed(stid)(preparedBid) := false.B
+        tableFirstRob(stid)(preparedBid) :=
           boundRob
-        tableLastRob(stid)(prepared.entries(lane).bid) :=
+        tableLastRob(stid)(preparedBid) :=
           boundRob
       }
       val currentBlockInPrefix = scanCurrentValid(lane) &&
         scanCurrentBid(lane) === prepared.entries(lane).bid
       when(prepared.entries(lane).valid &&
         (prepared.entries(lane).allocated ||
-          tableValid(stid)(prepared.entries(lane).bid) ||
+          tableValid(stid)(physicalBid(prepared.entries(lane).bid)) ||
           currentBlockInPrefix)) {
         val boundRob = io.robPrepared.entries(lane).rob
-        tableLastRob(stid)(prepared.entries(lane).bid) :=
+        tableLastRob(stid)(physicalBid(prepared.entries(lane).bid)) :=
           boundRob
       }
       when(prepared.entries(lane).valid && io.prepare.bits.entries(lane).blockStop) {
         val boundRob = io.robPrepared.entries(lane).rob
-        tableClosed(stid)(prepared.entries(lane).bid) := true.B
-        tableLastRob(stid)(prepared.entries(lane).bid) :=
+        tableClosed(stid)(physicalBid(prepared.entries(lane).bid)) := true.B
+        tableLastRob(stid)(physicalBid(prepared.entries(lane).bid)) :=
           boundRob
       }
     }
@@ -196,7 +211,7 @@ class BROB(val p: CoreParams) extends Module {
   val relIncludesLast = (0 until p.widths.retireWidth).map { lane =>
     val active = lane.U < io.release.bits.count
     val id = io.release.bits.entries(lane)
-    val last = tableLastRob(relStid)(head(relStid))
+    val last = tableLastRob(relStid)(physicalBid(head(relStid)))
     active &&
       id.stid === last.stid &&
       id.ridSlot === last.ridSlot &&
@@ -209,10 +224,12 @@ class BROB(val p: CoreParams) extends Module {
     io.release.valid && io.release.bits.count =/= 0.U &&
     rel.stid < p.ooo.stidCount.U &&
     rel.bid === head(relStid) &&
+    bidInRange(rel.bid) &&
     rel.brobGeneration === headGeneration(relStid) &&
-    tableValid(relStid)(rel.bid) &&
-    tableGeneration(relStid)(rel.bid) === rel.brobGeneration &&
-    tableClosed(relStid)(rel.bid) &&
+    tableValid(relStid)(safePhysicalBid(rel.bid)) &&
+    tableGeneration(relStid)(safePhysicalBid(rel.bid)) ===
+      rel.brobGeneration &&
+    tableClosed(relStid)(safePhysicalBid(rel.bid)) &&
     relPrefixShape && relIncludesLast
   io.releaseReady := releaseExact
   val relRob = Wire(new RobIdentity(p))
@@ -224,12 +241,14 @@ class BROB(val p: CoreParams) extends Module {
   io.releaseRejected.bits := relRob
   when(io.release.valid && io.release.bits.count =/= 0.U) {
     when(releaseExact && io.releaseApply) {
-      tableValid(relStid)(rel.bid) := false.B
-      tableClosed(relStid)(rel.bid) := false.B
+      val relBid = physicalBid(rel.bid)
+      tableValid(relStid)(relBid) := false.B
+      tableClosed(relStid)(relBid) := false.B
       used(relStid) := used(relStid) - 1.U
       val nextHead = head(relStid) +& 1.U
       val wrap = nextHead >= p.ooo.brobEntriesPerStid.U
-      head(relStid) := nextHead(p.nativeBidWidth - 1, 0)
+      head(relStid) := Mux(wrap, 0.U(p.nativeBidWidth.W),
+        physicalBid(nextHead))
       headGeneration(relStid) := headGeneration(relStid) + wrap.asUInt
     }
   }
@@ -240,25 +259,36 @@ class BROB(val p: CoreParams) extends Module {
   val recTargetValid = recIn.trigger.stid < p.ooo.stidCount.U
   val recFirstBid = recIn.firstKilled.bid
   val recLastBid = recIn.lastKilled.bid
+  val recFirstBidInRange = bidInRange(recFirstBid)
+  val recLastBidInRange = bidInRange(recLastBid)
+  val recFirstPhysicalBid = safePhysicalBid(recFirstBid)
+  val recLastPhysicalBid = safePhysicalBid(recLastBid)
   val recFirstSlotValid = recIn.firstKilledValid &&
-    tableValid(recStid)(recFirstBid) &&
-    tableGeneration(recStid)(recFirstBid) === recIn.firstKilled.brobGeneration
+    recFirstBidInRange && tableValid(recStid)(recFirstPhysicalBid) &&
+    tableGeneration(recStid)(recFirstPhysicalBid) ===
+      recIn.firstKilled.brobGeneration
   val recLastSlotValid = recIn.firstKilledValid &&
-    tableValid(recStid)(recLastBid) &&
-    tableGeneration(recStid)(recLastBid) === recIn.lastKilled.brobGeneration
+    recLastBidInRange && tableValid(recStid)(recLastPhysicalBid) &&
+    tableGeneration(recStid)(recLastPhysicalBid) ===
+      recIn.lastKilled.brobGeneration
   val recFirstSlotFirstKilled = recFirstSlotValid &&
-    RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(recFirstBid))
+    RecoveryPlanContract.suffixMember(recIn,
+      tableFirstRob(recStid)(recFirstPhysicalBid))
   val recFirstSlotStraddles = recFirstSlotValid &&
-    !RecoveryPlanContract.suffixMember(recIn, tableFirstRob(recStid)(recFirstBid)) &&
-    RecoveryPlanContract.suffixMember(recIn, tableLastRob(recStid)(recFirstBid))
+    !RecoveryPlanContract.suffixMember(recIn,
+      tableFirstRob(recStid)(recFirstPhysicalBid)) &&
+    RecoveryPlanContract.suffixMember(recIn,
+      tableLastRob(recStid)(recFirstPhysicalBid))
   val recFirstEndpointExact = !recIn.firstKilledValid || (
     (recFirstSlotFirstKilled &&
-      tableFirstRob(recStid)(recFirstBid).asUInt === recIn.firstKilled.asUInt) ||
+      tableFirstRob(recStid)(recFirstPhysicalBid).asUInt ===
+        recIn.firstKilled.asUInt) ||
       (recFirstSlotStraddles &&
         RecoveryPlanContract.suffixMember(recIn, recIn.firstKilled)))
   val recLastEndpointExact = !recIn.firstKilledValid || (
     recLastSlotValid &&
-      tableLastRob(recStid)(recLastBid).asUInt === recIn.lastKilled.asUInt)
+      tableLastRob(recStid)(recLastPhysicalBid).asUInt ===
+        recIn.lastKilled.asUInt)
   val prepareKilledMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
   val prepareStraddlingMask = Wire(Vec(p.ooo.brobEntriesPerStid, Bool()))
   for (bid <- 0 until p.ooo.brobEntriesPerStid) {
@@ -303,8 +333,8 @@ class BROB(val p: CoreParams) extends Module {
     // whether the original block had already published its stop marker.
     partialCurrent := straddlingBlock
     val currentSurvives = currentValid(recStid) &&
-      tableValid(recStid)(currentBid(recStid)) &&
-      !prepareKilledMask(currentBid(recStid))
+      tableValid(recStid)(physicalBid(currentBid(recStid))) &&
+      !prepareKilledMask(physicalBid(currentBid(recStid)))
     recoveryPending := true.B
     recoveryPlan := recIn
     recoveryKilledMaskReg := prepareKilledMask
@@ -321,7 +351,8 @@ class BROB(val p: CoreParams) extends Module {
       tableGeneration(recStid)(straddlingBid), currentGeneration(recStid))
     recoveryUsedReg := used(recStid) - killedCount
     recoveryTailReg := Mux(straddlingBlock,
-      straddlingTailWide(p.nativeBidWidth - 1, 0),
+      Mux(straddlingTailWrap, 0.U(p.nativeBidWidth.W),
+        straddlingTailWide.pad(p.nativeBidWidth)),
       recIn.firstKilled.bid)
     recoveryGenerationReg := Mux(straddlingBlock,
       tableGeneration(recStid)(straddlingBid) + straddlingTailWrap.asUInt,
@@ -353,9 +384,10 @@ class BROB(val p: CoreParams) extends Module {
       currentBid(recoveryApplyStid) := recoveryCurrentBidReg
       currentGeneration(recoveryApplyStid) := recoveryCurrentGenerationReg
       when(recoveryStraddlingBlockReg) {
-        assert(tableGeneration(recoveryApplyStid)(recoveryStraddlingBidReg) ===
+        val straddlingBid = physicalBid(recoveryStraddlingBidReg)
+        assert(tableGeneration(recoveryApplyStid)(straddlingBid) ===
           recoveryStraddlingGenerationReg)
-        tableLastRob(recoveryApplyStid)(recoveryStraddlingBidReg) :=
+        tableLastRob(recoveryApplyStid)(straddlingBid) :=
           recoverySurvivingTailReg
       }
     }

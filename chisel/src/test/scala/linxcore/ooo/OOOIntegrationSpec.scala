@@ -533,6 +533,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
   test("matches a four-STID reference across canonical publish and recovery") {
     val base = SimulationParamProfiles.W2
     val p = base.copy(ooo = base.ooo.copy(stidCount = 4,
+      stidIdentityEntries = 4,
       robGroupsPerStid = 8, brobEntriesPerStid = 8,
       pcBufferEntries = 16,
       gprPhysRegs = 128, gprMapQDepthPerStid = 8,

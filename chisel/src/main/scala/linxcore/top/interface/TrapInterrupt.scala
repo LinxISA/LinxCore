@@ -19,7 +19,7 @@ class TrapEvent(val p: CoreParams) extends Bundle {
 
 class InterruptRequest(val p: CoreParams) extends Bundle {
   val valid = Bool()
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val stid = UInt(p.ooo.stidWidth.W)
   val cause = UInt(p.trapCauseWidth.W)
   val priority = UInt(8.W)
 }

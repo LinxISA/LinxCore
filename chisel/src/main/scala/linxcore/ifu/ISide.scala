@@ -16,7 +16,7 @@ object ISide {
     val ingressWidth = 4
     val checkpointWidth =
       math.max(1, log2Ceil(p.ifu.predictionCheckpointEntries))
-    val threadWidth = math.max(1, log2Ceil(p.ooo.stidCount))
+    val threadWidth = p.ooo.stidWidth
     InterfaceParams(
       fetchWidth = ingressWidth,
       decodeWidth = ingressWidth,
@@ -28,7 +28,7 @@ object ISide {
       insnWidth = p.instructionWidth,
       lenWidth = 4,
       archRegWidth = p.archRegWidth,
-      physRegWidth = math.max(6, log2Ceil(p.ooo.gprPhysRegs)),
+      physRegWidth = math.max(6, p.ooo.gprTagWidth),
       robEntries = p.ooo.robGroupsPerStid,
       iqEntries = p.iex.scalarIssueEntries,
       blockBidWidth = 64,

@@ -17,6 +17,7 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     dispatchWidth = 2,
     retireGroupWidth = 2,
     robGroupsPerStid = 8,
+    robIdentityGroupsPerStid = 64,
     robBankCount = 2,
     robRecoveryScanGroupsPerCycle = 2,
     robNonFlushScanGroupsPerCycle = 2,
@@ -32,13 +33,20 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     lsidWidth = 40)
 
   private val core = CoreParams(
-    robEntries = 8,
+    robEntries = 64,
     lsidWidth = 40,
     scalarLsu = ScalarLsuParams(
       stqEntries = 4,
       liqEntries = 4,
       loadReturnPipeCount = 3,
       stidCount = 4))
+
+  test("fixture preserves a wide ROB identity projection over bounded physical rows") {
+    assert(p.robGroupsPerStid == 8)
+    assert(p.robIdentityGroupsPerStid == 64)
+    assert(core.robEntries == p.robIdentityGroupsPerStid)
+    assert(p.ridSlotWidth == 6)
+  }
 
   test("derives the W4 two-lane terminal geometry from the canonical LSU profile") {
     val twoPipeCore = core.copy(
@@ -406,7 +414,7 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
-  test("two replays drain stale attempts in reverse order and drain future attempts without mutation") {
+  test("three replays need no stale completion capacity and drain old attempts in arbitrary order") {
     simulate(new OooIexLoadTerminalMetadata(p, core)) { dut =>
       defaults(dut)
       pokeAlloc(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
@@ -424,16 +432,39 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
         transactionGeneration = 3)
       dut.io.rebind.ready.expect(true.B)
       dut.clock.step()
+      pokeRebind(dut, slot = 1, ridSlot = 2, currentGeneration = 7,
+        nextGeneration = 8, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.rebind.ready.expect(true.B,
+        "rebind liveness must not depend on a finite stale-attempt table")
+      dut.clock.step()
       dut.io.rebind.valid.poke(false.B)
       dut.io.result.ready.poke(true.B)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
-        attemptGeneration = 8, transactionValue = 19,
+        attemptGeneration = 9, transactionValue = 19,
         transactionGeneration = 3)
       dut.io.result.valid.expect(false.B)
       dut.io.completionRejected.valid.expect(true.B)
       dut.io.completion.ready.expect(true.B,
         "a future untracked attempt must reject-and-drain")
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 7, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completion.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.occupied.expect(1.U)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, transactionValue = 19,
+        transactionGeneration = 3)
+      dut.io.result.valid.expect(false.B)
+      dut.io.completion.ready.expect(true.B,
+        "an arbitrarily old attempt must reject-and-drain without retained history")
       dut.clock.step()
       dut.io.occupied.expect(1.U)
 
@@ -446,16 +477,7 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.io.occupied.expect(1.U)
 
       pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
-        attemptGeneration = 5, transactionValue = 19,
-        transactionGeneration = 3)
-      dut.io.result.valid.expect(false.B)
-      dut.io.completion.ready.expect(true.B,
-        "the oldest tombstone must survive a second rebind")
-      dut.clock.step()
-      dut.io.occupied.expect(1.U)
-
-      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
-        attemptGeneration = 7, transactionValue = 19,
+        attemptGeneration = 8, transactionValue = 19,
         transactionGeneration = 3)
       dut.io.result.valid.expect(true.B)
       dut.io.completion.ready.expect(true.B)

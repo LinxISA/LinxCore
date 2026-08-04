@@ -16,7 +16,7 @@ object OooIexCanonicalLoadOwnership {
     require(p.nativeBidWidth <= 16,
       "default canonical LSU projection supports native BID up to 16 bits")
     val bidProjectionEntries = 1 << (p.nativeBidWidth - 1)
-    val robEntries = math.max(p.robGroupsPerStid, bidProjectionEntries)
+    val robEntries = math.max(p.robIdentityGroupsPerStid, bidProjectionEntries)
     val defaultLiqEntries = ScalarLsuParams().liqEntries
     val scalarLsu = ScalarLsuParams(
       stidCount = p.stidCount,

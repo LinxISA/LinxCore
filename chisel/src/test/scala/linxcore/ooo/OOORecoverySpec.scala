@@ -1419,6 +1419,10 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     expectRejected(_.io.recoveryPrepare.bits.firstKilled.brobGeneration.poke(1.U))
     expectRejected(_.io.recoveryPrepare.bits.lastKilled.bid.poke(0.U))
     expectRejected(_.io.recoveryPrepare.bits.lastKilled.brobGeneration.poke(1.U))
+    expectRejected(_.io.recoveryPrepare.bits.firstKilled.bid.poke(
+      params.ooo.brobEntriesPerStid.U))
+    expectRejected(_.io.recoveryPrepare.bits.lastKilled.bid.poke(
+      params.ooo.brobEntriesPerStid.U))
   }
 
   test("BROB recovery rejects stale reused-BID generation after wrap") {

@@ -15,21 +15,21 @@ class D3RenameHistory(val p: CoreParams) extends Bundle {
   val kind = OperandKind()
   val atag = UInt(p.archRegWidth.W)
 
-  val ptag = UInt(InterfaceWidth.index(p.ooo.gprPhysRegs).W)
-  val previousPtag = UInt(InterfaceWidth.index(p.ooo.gprPhysRegs).W)
+  val ptag = UInt(p.ooo.gprTagWidth.W)
+  val previousPtag = UInt(p.ooo.gprTagWidth.W)
   val pGeneration = UInt(p.ooo.gprTagGenerationWidth.W)
   val previousPGeneration = UInt(p.ooo.gprTagGenerationWidth.W)
   val pMapQIndex = UInt(InterfaceWidth.index(p.ooo.gprMapQDepthPerStid).W)
   val pMapQGeneration = UInt(p.ooo.gprTagGenerationWidth.W)
 
-  val ttag = UInt(InterfaceWidth.index(p.ooo.tPhysRegs).W)
-  val previousTtag = UInt(InterfaceWidth.index(p.ooo.tPhysRegs).W)
+  val ttag = UInt(p.ooo.tTagWidth.W)
+  val previousTtag = UInt(p.ooo.tTagWidth.W)
   val tGeneration = UInt(p.ooo.localSeqGenerationWidth.W)
   val tMapQIndex = UInt(InterfaceWidth.index(p.ooo.tuMapQDepthPerStid).W)
   val tMapQGeneration = UInt(p.ooo.localSeqGenerationWidth.W)
 
-  val utag = UInt(InterfaceWidth.index(p.ooo.uPhysRegs).W)
-  val previousUtag = UInt(InterfaceWidth.index(p.ooo.uPhysRegs).W)
+  val utag = UInt(p.ooo.uTagWidth.W)
+  val previousUtag = UInt(p.ooo.uTagWidth.W)
   val uGeneration = UInt(p.ooo.localSeqGenerationWidth.W)
   val uMapQIndex = UInt(InterfaceWidth.index(p.ooo.tuMapQDepthPerStid).W)
   val uMapQGeneration = UInt(p.ooo.localSeqGenerationWidth.W)
@@ -73,7 +73,7 @@ class MemoryOrderState(val p: CoreParams) extends Bundle {
 
 class MemoryOrderReservation(val p: CoreParams) extends Bundle {
   val valid = Bool()
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val stid = UInt(p.ooo.stidWidth.W)
   val count = UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)
   val before = new MemoryOrderState(p)
   val after = new MemoryOrderState(p)
@@ -117,7 +117,7 @@ class RENUD2D3IO(val p: CoreParams) extends Bundle {
   val recovery = Flipped(new RecoveryTargetIO(p))
   val debugPMap = Output(Vec(p.ooo.stidCount,
     Vec(p.ooo.gprArchRegs,
-      UInt(InterfaceWidth.index(p.ooo.gprPhysRegs).W))))
+      UInt(p.ooo.gprTagWidth.W))))
   val debugTCount = Output(Vec(p.ooo.stidCount,
     UInt(log2Ceil(p.ooo.tuMapQDepthPerStid + 1).W)))
   val debugUCount = Output(Vec(p.ooo.stidCount,

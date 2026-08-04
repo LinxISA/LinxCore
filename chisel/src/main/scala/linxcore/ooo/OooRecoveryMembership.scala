@@ -120,8 +120,8 @@ object OooRecoveryMembership {
 
   def requireCompatible(p: OooParams, core: CoreParams): Unit = {
     require(p.peIdWidth == core.peIdWidth &&
-      p.stidWidth == InterfaceWidth.index(core.ooo.stidCount) &&
-      p.ridSlotWidth == InterfaceWidth.index(core.ooo.robGroupsPerStid) &&
+      p.stidWidth == core.ooo.stidWidth &&
+      p.ridSlotWidth == core.ooo.ridSlotWidth &&
       p.ridGenerationWidth == core.ridGenerationWidth &&
       p.nativeBidWidth == core.nativeBidWidth &&
       p.brobGenerationWidth == core.brobGenerationWidth &&
@@ -129,8 +129,7 @@ object OooRecoveryMembership {
       p.memoryTransactionIdWidth == core.memoryTransactionIdWidth &&
       p.memoryTransactionGenerationWidth ==
         core.memoryTransactionGenerationWidth &&
-      p.robMemberIndexWidth >= InterfaceWidth.index(
-        core.ooo.maxInstructionsPerRobGroup),
+      p.robMemberIndexWidth == core.ooo.robMemberIndexWidth,
       "private IEX ROB identity fields must cover canonical CoreParams")
     require(p.robGroupsPerStid == core.ooo.robGroupsPerStid &&
       p.stidCount == core.ooo.stidCount,

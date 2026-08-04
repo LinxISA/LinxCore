@@ -226,15 +226,23 @@ class OooIexIssue(
       source: linxcore.top.interface.RenamedSource,
       sourceClass: OperandClass.Type,
       sequence: OooLocalSeq): Bool = {
+    def physicalIndex(value: UInt, entries: Int): UInt = {
+      val width = math.max(1, log2Ceil(entries))
+      if (entries == 1) 0.U(width.W) else value(width - 1, 0)
+    }
+    def safePhysicalIndex(value: UInt, entries: Int, inRange: Bool): UInt = {
+      val width = math.max(1, log2Ceil(entries))
+      Mux(inRange, physicalIndex(value, entries), 0.U(width.W))
+    }
     val stid = txn.uop.decoded.rob.stid
     val stidInRange = stid < p.stidCount.U
-    val safeStid = Mux(stidInRange, stid, 0.U)
+    val safeStid = safePhysicalIndex(stid, p.stidCount, stidInRange)
     val ptagInRange = source.ptag < p.pPhysRegs.U
-    val safePtag = Mux(ptagInRange, source.ptag, 0.U)
+    val safePtag = safePhysicalIndex(source.ptag, p.pPhysRegs, ptagInRange)
     val ttagInRange = source.ttag < p.tPhysRegs.U
-    val safeTtag = Mux(ttagInRange, source.ttag, 0.U)
+    val safeTtag = safePhysicalIndex(source.ttag, p.tPhysRegs, ttagInRange)
     val utagInRange = source.utag < p.uPhysRegs.U
-    val safeUtag = Mux(utagInRange, source.utag, 0.U)
+    val safeUtag = safePhysicalIndex(source.utag, p.uPhysRegs, utagInRange)
     val epoch = txn.uop.decoded.instruction.parent.identity.epoch
     val pEntry = io.operandReadyBits.ptag(safePtag)
     val tEntry = if (p.stidCount == 1)

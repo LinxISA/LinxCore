@@ -6,8 +6,8 @@ import linxcore.params.CoreParams
 import linxcore.top.interface._
 
 private[ooo] object TURename {
-  def tTagWidth(p: CoreParams): Int = math.max(1, log2Ceil(p.ooo.tPhysRegs))
-  def uTagWidth(p: CoreParams): Int = math.max(1, log2Ceil(p.ooo.uPhysRegs))
+  def tTagWidth(p: CoreParams): Int = p.ooo.tTagWidth
+  def uTagWidth(p: CoreParams): Int = p.ooo.uTagWidth
 }
 
 private[ooo] class TURenameIO(val p: CoreParams) extends Bundle {
@@ -38,7 +38,7 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
   private val width = p.widths.decodeWidth
   private val tTagWidth = TURename.tTagWidth(p)
   private val uTagWidth = TURename.uTagWidth(p)
-  private val stidWidth = math.max(1, log2Ceil(p.ooo.stidCount))
+  private val stidWidth = p.ooo.stidWidth
   private val tuIndexWidth = math.max(1, log2Ceil(p.ooo.tuMapQDepthPerStid))
   private val tuCountWidth = math.max(1, log2Ceil(p.ooo.tuMapQDepthPerStid + 1))
   private val destSlots = width * p.maxDestinationOperands
@@ -65,7 +65,7 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
     a.asUInt === b.asUInt
 
   private def robBeforeOrAt(a: RobIdentity, b: RobIdentity): Bool = {
-    val slotWidth = math.max(1, log2Ceil(p.ooo.robGroupsPerStid))
+    val slotWidth = p.ooo.ridSlotWidth
     val orderWidth = p.ridGenerationWidth + slotWidth
     val aOrder = Cat(a.ridGeneration, a.ridSlot)
     val bOrder = Cat(b.ridGeneration, b.ridSlot)

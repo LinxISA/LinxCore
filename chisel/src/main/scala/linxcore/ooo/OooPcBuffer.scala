@@ -9,7 +9,7 @@ private[ooo] class PcBufferRow(val p: CoreParams) extends Bundle {
   private val liveWidth = PrefixPacketContract.countWidth(
     p.ooo.robGroupsPerStid)
   val valid = Bool()
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val stid = UInt(p.ooo.stidWidth.W)
   val pcBufferIndex = UInt(InterfaceWidth.index(p.ooo.pcBufferEntries).W)
   val allocationEpoch = UInt(p.ooo.pcAllocationEpochWidth.W)
   val pcBase = UInt(p.pcWidth.W)
@@ -17,9 +17,8 @@ private[ooo] class PcBufferRow(val p: CoreParams) extends Bundle {
   val lastRob = new RobIdentity(p)
   val nextCommitValid = Bool()
   val nextCommitPeId = UInt(p.peIdWidth.W)
-  val nextCommitStid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
-  val nextCommitRidSlot = UInt(
-    InterfaceWidth.index(p.ooo.robGroupsPerStid).W)
+  val nextCommitStid = UInt(p.ooo.stidWidth.W)
+  val nextCommitRidSlot = UInt(p.ooo.ridSlotWidth.W)
   val nextCommitRidGeneration = UInt(p.ridGenerationWidth.W)
   val liveRobGroups = UInt(liveWidth.W)
   val closed = Bool()
@@ -30,7 +29,7 @@ private[ooo] class PcBufferRow(val p: CoreParams) extends Bundle {
 
 private[ooo] class PcBufferReadRow(val p: CoreParams) extends Bundle {
   val valid = Bool()
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val stid = UInt(p.ooo.stidWidth.W)
   val pcBufferIndex = UInt(InterfaceWidth.index(p.ooo.pcBufferEntries).W)
   val allocationEpoch = UInt(p.ooo.pcAllocationEpochWidth.W)
   val pcBase = UInt(p.pcWidth.W)
@@ -101,8 +100,8 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
     val slotSum = previous.ridSlot +& 1.U
     val wraps = slotSum >= p.ooo.robGroupsPerStid.U
     current.peId === previous.peId && current.stid === previous.stid &&
-      current.ridSlot === slotSum(
-        InterfaceWidth.index(p.ooo.robGroupsPerStid) - 1, 0) &&
+      current.ridSlot === Mux(wraps, 0.U(p.ooo.ridSlotWidth.W),
+        slotSum(p.ooo.ridSlotWidth - 1, 0)) &&
       current.ridGeneration === previous.ridGeneration + wraps.asUInt
   }
   private def groupOrdinal(id: RobIdentity): UInt =
@@ -941,8 +940,8 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
       val wraps = sum >= p.ooo.robGroupsPerStid.U
       row.nextCommitPeId := last.peId
       row.nextCommitStid := last.stid
-      row.nextCommitRidSlot := sum(
-        InterfaceWidth.index(p.ooo.robGroupsPerStid) - 1, 0)
+      row.nextCommitRidSlot := Mux(wraps, 0.U(p.ooo.ridSlotWidth.W),
+        sum(p.ooo.ridSlotWidth - 1, 0))
       row.nextCommitRidGeneration := last.ridGeneration + wraps.asUInt
     }
     when(commitHere && commitClose) { row.closeCommitted := true.B }

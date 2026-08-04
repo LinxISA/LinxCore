@@ -12,6 +12,7 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     ParamProfiles.forWidth(width).copy(
       ooo = ParamProfiles.forWidth(width).ooo.copy(
         stidCount = stids,
+        stidIdentityEntries = math.max(2, stids),
         robGroupsPerStid = 8,
         gprPhysRegs = if (stids == 1 && width <= 4) 32 else 64,
         gprMapQDepthPerStid = if (width <= 4) 8 else 16,
@@ -430,6 +431,38 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.fromD2.valid.poke(false.B)
       dut.io.toD3.bits.entries(0).uop.destinations(0).ptag.expect((live + 1).U)
+    }
+  }
+
+  test("out-of-range identity PTag release cannot alias a physical rename entry") {
+    val p = base(2)
+    simulate(new RENU(p)) { dut =>
+      clear(dut)
+      dut.io.fromD2.bits.count.poke(1.U)
+      dut.io.fromD2.bits.groupCount.poke(1.U)
+      pokeGprAdd(dut.io.fromD2.bits, 0, id = 62, dst = 1,
+        src0 = 2, src1 = 3, rid = 1)
+      dut.io.fromD2.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.fromD2.valid.poke(false.B)
+      val held = acceptHeld(dut)
+      val live = dut.io.debugPMap(0)(1).peek().litValue
+
+      dut.io.release.bits.poke(0.U.asTypeOf(dut.io.release.bits))
+      dut.io.release.bits.count.poke(1.U)
+      dut.io.release.bits.lanes(0).valid.poke(true.B)
+      dut.io.release.bits.lanes(0).rob.poke(
+        held.entries(0).uop.decoded.rob)
+      dut.io.release.bits.lanes(0).history(0).poke(
+        held.entries(0).history(0))
+      dut.io.release.bits.lanes(0).history(0).ptag.poke(
+        p.ooo.gprPhysRegs.U)
+      dut.io.release.valid.poke(true.B)
+      dut.io.releaseReady.expect(false.B,
+        "an out-of-range identity tag must not truncate onto physical tag zero")
+      dut.clock.step()
+      dut.io.release.valid.poke(false.B)
+      dut.io.debugPMap(0)(1).expect(live.U)
     }
   }
 

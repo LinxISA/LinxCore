@@ -27,19 +27,19 @@ class OooIexStoreStqFabricIO(
     Valid(new OooIexLoadCancel(p))))
   val loadForwardQuery = Flipped(Vec(core.lsu.loadPipes, Decoupled(
     new STQLoadForwardQuery(
-      p.robGroupsPerStid, stidWidth = p.stidWidth,
+      p.robIdentityGroupsPerStid, stidWidth = p.stidWidth,
       lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth))))
   val loadForwardResponse = Vec(core.lsu.loadPipes, Decoupled(
     new STQLoadForwardResponse(
-      p.robGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
+      p.robIdentityGroupsPerStid, stqEntries, stidWidth = p.stidWidth,
       lsidWidth = p.lsidWidth, tokenWidth = p.transactionIdWidth)))
   val loadForwardOccupied = Output(UInt(core.lsu.loadPipes.W))
   val lateStaProbe = Output(Valid(new MDBConflictStoreProbe(
-    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    p.robIdentityGroupsPerStid, peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth, tidWidth = p.stidWidth,
     sizeWidth = 7, lsidWidth = p.lsidWidth)))
   val lateStaCandidate = Output(Valid(new MDBConflictStoreProbe(
-    p.robGroupsPerStid, peIdWidth = p.peIdWidth,
+    p.robIdentityGroupsPerStid, peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth, tidWidth = p.stidWidth,
     sizeWidth = 7, lsidWidth = p.lsidWidth)))
   val lateStaPermit = Input(Bool())
@@ -60,7 +60,7 @@ class OooIexStoreStqFabricIO(
   val recoveryRejected = Output(Bool())
 
   val rows = Output(Vec(stqEntries, new STQEntryBankRow(
-    p.robGroupsPerStid,
+    p.robIdentityGroupsPerStid,
     peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth,
     tidWidth = p.stidWidth,
@@ -112,7 +112,7 @@ class OooIexStoreStqFabric(
     stidWidth = p.stidWidth,
     tidWidth = p.stidWidth,
     mapQDepth = p.tuMapQDepthPerStid,
-    robEntries = p.robGroupsPerStid,
+    robEntries = p.robIdentityGroupsPerStid,
     lsidWidth = p.lsidWidth,
     nativeBidWidth = p.nativeBidWidth,
     ridGenerationWidth = p.ridGenerationWidth,
@@ -127,7 +127,7 @@ class OooIexStoreStqFabric(
     stidWidth = p.stidWidth,
     tidWidth = p.stidWidth,
     mapQDepth = p.tuMapQDepthPerStid,
-    robEntries = p.robGroupsPerStid,
+    robEntries = p.robIdentityGroupsPerStid,
     lsidWidth = p.lsidWidth,
     nativeBidWidth = p.nativeBidWidth,
     ridGenerationWidth = p.ridGenerationWidth,
@@ -139,7 +139,7 @@ class OooIexStoreStqFabric(
   val loadForward = Module(new STQLoadForwardingPipeline(
     loadPipes = core.lsu.loadPipes,
     stqEntries = stqEntries,
-    robEntries = p.robGroupsPerStid,
+    robEntries = p.robIdentityGroupsPerStid,
     peIdWidth = p.peIdWidth,
     stidWidth = p.stidWidth,
     tidWidth = p.stidWidth,

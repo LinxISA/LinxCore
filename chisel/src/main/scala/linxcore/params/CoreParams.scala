@@ -34,5 +34,5 @@ final case class CoreParams(
   ParamChecks.validate(this)
 
   /** Native BID is the per-STID BROB slot; generation remains a separate field. */
-  def nativeBidWidth: Int = log2Ceil(ooo.brobEntriesPerStid)
+  def nativeBidWidth: Int = ooo.nativeBidWidth
 }

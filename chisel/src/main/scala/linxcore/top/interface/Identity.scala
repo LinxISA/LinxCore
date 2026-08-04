@@ -11,7 +11,7 @@ object InterfaceWidth {
 /** Architectural parent identity, independent of ROB residency. */
 class InstructionIdentity(val p: CoreParams) extends Bundle {
   val peId = UInt(p.peIdWidth.W)
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
+  val stid = UInt(p.ooo.stidWidth.W)
   val instructionId = UInt(p.instructionIdWidth.W)
   val epoch = UInt(p.epochWidth.W)
 }
@@ -22,11 +22,10 @@ class InstructionIdentity(val p: CoreParams) extends Bundle {
   */
 class RobIdentity(val p: CoreParams) extends Bundle {
   val peId = UInt(p.peIdWidth.W)
-  val stid = UInt(InterfaceWidth.index(p.ooo.stidCount).W)
-  val ridSlot = UInt(InterfaceWidth.index(p.ooo.robGroupsPerStid).W)
+  val stid = UInt(p.ooo.stidWidth.W)
+  val ridSlot = UInt(p.ooo.ridSlotWidth.W)
   val ridGeneration = UInt(p.ridGenerationWidth.W)
-  val memberIndex =
-    UInt(InterfaceWidth.index(p.ooo.maxInstructionsPerRobGroup).W)
+  val memberIndex = UInt(p.ooo.robMemberIndexWidth.W)
   val residentGeneration = UInt(p.residentGenerationWidth.W)
   val bid = UInt(p.nativeBidWidth.W)
   val brobGeneration = UInt(p.brobGenerationWidth.W)

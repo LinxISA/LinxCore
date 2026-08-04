@@ -1227,7 +1227,8 @@ LinxCore adaptation:
 
 - Use `tools/chisel/build_chisel.sh`, `emit_verilog.sh`,
   `run_chisel_verilator_lint.sh`, `run_chisel_reduced_rob_xcheck.sh`,
-  `run_chisel_top_xcheck.sh`, and `run_chisel_qemu_crosscheck.sh`.
+  `run_chisel_frontend_trace_top_xcheck.sh`, and
+  `run_chisel_qemu_crosscheck.sh`.
 - Use `tools/chisel/trace_schema_adapter.py` as the typed boundary into
   `tools/trace/crosscheck_qemu_linxcore.py`.
 - Define Linx-native `LC-IF-CHISEL-XCHK-*` payloads. Do not import
@@ -1332,71 +1333,22 @@ Use this ladder for every promoted packet:
    commit, allocation, or recovery changes.
 4. `python3 tools/chisel/trace_schema_adapter.py --self-test` for trace schema
    changes.
-5. `bash tools/chisel/run_chisel_top_xcheck.sh` for top-level IO or commit
-   monitor changes.
-6. `bash tools/chisel/run_chisel_trace_replay_xcheck.sh` for any top-level
-   commit export, adapter, or cross-check harness changes.
-7. `bash tools/chisel/run_chisel_frontend_trace_top_lint.sh` for any
+5. `bash tools/chisel/run_chisel_frontend_trace_top_lint.sh` for any
    frontend-window-to-commit top boundary changes.
-8. `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh` after changes
+6. `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh --dry-run` for
+   emitter, top-name, harness, wrapper, or comparator-argument changes.
+7. `bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh` after changes
    to the frontend trace-top driver, completion surrogate, or commit export.
-9. `bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh` after
-   changes to the live frontend fetch source top, bounded memory-window
-   fixture, source-to-legacy-window handshake, completion surrogate, or commit
-   export.
-10. `bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh` after
-   changes to scalar ALU execute completion, completion-row payload wiring, or
-   the frontend ALU trace-top driver.
-11. `bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh` after
-   changes to scalar RF operand sourcing, registered issue-queue source
-   readiness, oldest-ready issue selection, issue-pick read-confirm gating,
-   physical writeback metadata, or the shared frontend ALU trace-top driver.
-12. `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
-   after changes to the live fetch source to RF-backed issue/ALU top, bounded
-   memory-window fixture, source PC advance, dense F4 slot capture/drain,
-   issue enqueue, RF writeback, ALU completion, or commit export.
-13. `bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
-   after changes to live QEMU capture, strict QEMU row selection, sparse ELF
-   fetch-memory binding, or the row-derived RF preload contract for the
-   reduced fetch RF/ALU gate.
-   Use `--allow-block-markers --expected-rows 0 --capture-rows 5` for the
-   legal-entry fixture when marker rows are intentionally part of the DUT input
-   stream but not part of the comparator stream. Use
-   `--allow-block-loop-reentry` only with `--allow-block-markers` for dynamic
-   FALL-header re-entry streams. For R143 and later reduced-top promotion, feed
-   those loop-aware rows through the live fetch RF/ALU top and require a
-   zero-mismatch generated-RTL replay. R144 moves the temporary contract to
-   `reducedBfu*` geometry consumed by `ReducedBfuBodyCutPredictor`; do not claim
-   full BFU closure until a real static-predictor geometry producer replaces
-   that harness source. R145 adds only diagnostic static-geometry learning from
-   explicit block-boundary or `BSTOP` events, R146 adds resolved body-end
-   learning for the same `SetBsize` contract, and R147 carries resolved
-   `hsize` payload on that diagnostic row. R148 compares the diagnostic row
-   against the external replay geometry, R149 factors resolved body-end
-   normalization into `ReducedBfuResolvedBodyEndOwner`, and R150 lets
-   `ReducedBfuBodyCutPredictor` consume latched static geometry payload through
-   `ReducedBfuGeometryPredictionLatch`. The latch prevents same-cycle learning
-   from clipping the sequential packet that discovered a body end. R152 factors
-   external cut-arm acceptance into `ReducedBfuBodyCutArm`; the generated-RTL
-   harness reports comparable, accepted, and mismatched arm rows while only
-   accepted rows can enable body-cut control. The external replay row remains
-   only the temporary cut-arm, resolved-event source, and comparison oracle
-   until real branch-resolution/body-end ownership is replay-proven.
-14. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for wrapper or
+8. `bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run` for comparator or
    QEMU-selection changes.
-15. `bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run` for
-   QEMU-row replay wrapper changes, then replay a bounded archived or fresh
-   QEMU JSONL with `--qemu-trace` or `--elf`. Use `--replay-rows` only to cap
-   the raw search window; `--max-commits` remains the architectural compare
-   window.
-16. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
+9. Inspect `<report-dir>/crosscheck_manifest.json` after any non-dry-run
    generated-RTL or QEMU comparison that routes through the common wrapper.
-   R151 and later manifests must include `git.linxcore`, `git.linxcore_model`,
+   Manifests must include `git.linxcore`, `git.linxcore_model`,
    `git.qemu`, and `git.superproject` before the run is cited as provenance for
    a promoted RTL packet.
-17. Full QEMU-vs-DUT comparison only after the Chisel top emits real
+10. Full QEMU-vs-DUT comparison only after the Chisel top emits real
    architectural commit rows.
-18. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
+11. `gfsim -f <elf>` only after the same ELF passed QEMU in the same run packet.
 
 ## Project Maintenance
 

@@ -119,7 +119,9 @@ class OooD2GroupPlanner(val p: OooParams = OooParams()) extends Module {
     group.key.valid := group.valid
     group.key.peId := io.in.bits.peId
     group.key.stid := stid
-    group.key.ridSlot := slotSum(p.ridSlotWidth - 1, 0)
+    group.key.ridSlot := Mux(wraps,
+      (slotSum - p.robGroupsPerStid.U)(p.ridSlotWidth - 1, 0),
+      slotSum(p.ridSlotWidth - 1, 0))
     group.key.ridGeneration := io.tailGeneration(stid) + wraps.asUInt
     group.logicalUopMask := VecInit((0 until p.decodedUopWidth).map { uopIndex =>
       io.in.bits.uopMask(uopIndex) && assignedGroup(uopIndex) === groupIndex.U

@@ -1,71 +1,51 @@
 # QEMU Cross-Check Adapter
 
-## Purpose
+## Current Contract
 
-Phase 0B creates the neutral commit-row path before the full Chisel core exists.
-The adapter lets Chisel, pyCircuit, and QEMU traces flow into the existing
-`tools/trace/crosscheck_qemu_linxcore.py` comparator without baking producer
-details into the comparator itself.
+The supported generated-RTL comparison entrypoint is
+`tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`. It emits
+`LinxCoreFrontendTraceTop`, builds `tools/chisel/frontend_trace_top_tb.cpp`,
+produces QEMU-shaped reference and DUT JSONL, and calls the neutral
+`tools/chisel/run_chisel_qemu_crosscheck.sh` comparator.
 
-## Partial sideband on harness failure
-
-When the generated-RTL trace harness exhausts its bounded commit wait, it
-still writes the requested `--sideband-stats` JSON before exiting nonzero. The
-partial report is diagnostic evidence only; it must not be used as a passing
-comparison result, but it preserves LIQ/LRET event counts needed to locate a
-stalled ownership boundary.
-
-The fetch/RF/ALU driver also samples the commit monitor immediately after each
-drain tick. A legal two-wide retirement can expose the following completed ROB
-row only after that edge; collecting only before the next expected-row advance
-would silently omit it and create a false QEMU/DUT divergence. The pending
-commit queue therefore remains the sole source of comparator order, but it is
-filled both before and after a drain edge.
+Displaced reduced-top, trace-replay, fetch/RF/ALU, and fixture-builder wrappers
+were deleted. Historical evidence that names them is not a current command
+contract and must not be copied into a gate.
 
 ## Tools
 
+- `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
+- `tools/chisel/frontend_trace_top_tb.cpp`
 - `tools/chisel/commit_trace_jsonl.h`
 - `tools/chisel/trace_schema_adapter.py`
 - `tools/chisel/run_chisel_qemu_crosscheck.sh`
-- `tools/chisel/run_chisel_reduced_rob_xcheck.sh`
-- `tools/chisel/run_chisel_top_xcheck.sh`
-- `tools/chisel/run_chisel_trace_replay_xcheck.sh`
-- `tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh`
-- `tools/chisel/run_chisel_frontend_trace_top_lint.sh`
-- `tools/chisel/run_chisel_frontend_trace_top_xcheck.sh`
-- `tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh`
-- `tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh`
-- `tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh`
-- `tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh`
-- `tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh`
-- `tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh`
-- `tools/chisel/frontend_fetch_rf_alu_qemu_rows.py`
 - `tools/trace/crosscheck_qemu_linxcore.py`
 
 ## Evidence Manifest
 
-For non-dry-run comparisons, `run_chisel_qemu_crosscheck.sh` now writes
-`crosscheck_manifest.json` next to the comparator reports. The manifest schema
-is `linxcore.chisel.crosscheck_manifest.v1` and records:
+The common comparator writes `crosscheck_manifest.json` beside its normalized
+traces and reports. The manifest records raw and normalized inputs, selected
+row bounds, mismatch status, first divergence, and repository provenance.
+Failure still emits a manifest, so a nonzero result remains diagnosable but is
+never passing evidence.
 
-- selected QEMU binary,
-- raw QEMU and DUT trace paths,
-- normalized QEMU and DUT trace paths,
-- comparator report paths,
-- row counts, mismatch count, first mismatch, and CBSTOP inflation summary,
-- `max_commits` plus the raw `normalize_rows` window used before metadata
-  filtering,
-- `rtl/LinxCore` and superproject `HEAD` plus dirty flags.
+## Current Gates
 
-The wrapper preserves the comparator exit status after writing the manifest.
-On a mismatch, the manifest is still emitted with `status: "fail"` so agents
-can archive the complete evidence bundle before debugging the first
-divergence.
+```bash
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh --dry-run
+python3 tools/chisel/check_crosscheck_wrapper_dependencies.py
+python3 tools/chisel/trace_schema_adapter.py --self-test
+bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
+bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
+```
+
+The `--dry-run` gate is intentionally non-RTL: it validates the canonical
+emitter object, emitted top name, C++ harness binding, and exact common
+cross-check arguments without invoking SBT, FIRRTL/CIRCT, or Verilator.
 
 ## Normalized Fields
 
-The adapter emits the mandatory commit fields currently required by the
-QEMU/LinxCore comparator:
+The adapter requires the architectural commit fields:
 
 ```text
 pc insn len wb_valid wb_rd wb_data
@@ -76,389 +56,13 @@ mem_valid mem_is_store mem_addr mem_wdata mem_rdata mem_size
 trap_valid trap_cause traparg0 next_pc
 ```
 
-It also preserves sideband fields when present: `seq`, `cycle`, `slot`, `bid`,
-`gid`, `rid`, `rob_valid`, `rob_wrap`, `rob_value`, `block_bid_valid`, and
-`block_bid`.
+It also preserves fixed DUT identity sidebands when present. The shared C++
+writer owns field spelling and default values; harnesses own only their pin to
+row projection.
 
-For nested Chisel rows, the adapter accepts `identity.bid`, `identity.gid`,
-`identity.rid`, `rob.valid`, `rob.wrap`, `rob.value`, `blockBidValid`,
-`blockBid`, `mem.isStore`, `trap.arg0`, and `nextPc`. Rows with `valid: 0` are
-filtered before sequence numbering so a fixed-width commit vector can be dumped
-without creating false comparator rows.
+## Proof Boundary
 
-## Shared C++ Writer
-
-Generated-RTL Verilator harnesses should emit commit JSONL through
-`tools/chisel/commit_trace_jsonl.h` instead of open-coding JSON strings. The
-helper owns two wire formats:
-
-- `write_qemu_commit_jsonl`: architectural fields only, matching the QEMU
-  commit trace shape in `target/linx/helper.c` and the trace-manager plugin.
-- `write_dut_commit_jsonl`: the same architectural fields plus fixed-width
-  Chisel sidebands: `valid`, `seq`, `cycle`, `slot`, `bid/gid/rid`,
-  `rob_valid/rob_wrap/rob_value`, `block_bid_valid`, and `block_bid`.
-
-Harness-specific code still owns how it reads Verilated pins and how it builds
-expected rows. The shared writer only owns spelling, default zeros, and boolean
-encoding. This preserves the LinxCoreModel split between 32-bit
-`CommitInfo(bid,gid,rid)` identity and the 64-bit hardware `block_bid` while
-future live Chisel tops are wired into the same neutral comparator path.
-
-## QEMU Binary Selection
-
-`run_chisel_qemu_crosscheck.sh` uses this priority:
-
-1. explicit `QEMU=...`
-2. `emulator/qemu/build-linx/qemu-system-linx64`
-3. legacy `emulator/qemu/build/qemu-system-linx64`
-
-## Gates
-
-```bash
-bash tools/chisel/run_chisel_qemu_crosscheck.sh --dry-run
-python3 tools/chisel/trace_schema_adapter.py --self-test
-bash tools/chisel/run_chisel_reduced_rob_xcheck.sh
-bash tools/chisel/run_chisel_top_xcheck.sh
-bash tools/chisel/run_chisel_trace_replay_xcheck.sh
-bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh --dry-run
-bash tools/chisel/run_chisel_frontend_trace_top_lint.sh
-bash tools/chisel/run_chisel_frontend_trace_top_xcheck.sh
-bash tools/chisel/run_chisel_frontend_fetch_trace_top_xcheck.sh
-bash tools/chisel/run_chisel_frontend_alu_trace_top_xcheck.sh
-bash tools/chisel/run_chisel_frontend_rf_alu_trace_top_xcheck.sh
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh
-bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r100-live-qemu-fixture
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
-  --expected-rows 3 --capture-rows 3 --pc-lo 0x10002 --pc-hi 0x1000b \
-  --max-seconds 5
-bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh --out-dir generated/r101-live-qemu-fixture
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
-  --expected-rows 0 --capture-rows 5 --allow-block-markers \
-  --max-seconds 5
-```
-
-For first-pass scalar-load ownership, the generated-RTL wrapper accepts
-`--reduced-store-live-load-liq`. It selects the distinct
-`LinxCoreFrontendFetchRfAluReducedStoreLiveLoadLiqTraceTop`, where an E1 load
-must allocate in LIQ before its LRET/W1/W2 completion. Use the existing
-reduced-store/replay-LIQ options only for their respective harnesses: all four
-top selections are mutually exclusive. A bounded live-load run must retain
-the manifest and sideband statistics and show LIQ allocation plus launch
-before it is treated as evidence of the new owner.
-
-`VERILATOR_BUILD_JOBS` controls the Verilator `--build-jobs` value used by the
-fetch/RF/ALU runner. It defaults to `0` (Verilator auto-parallelism); set an
-explicit positive value only when host contention requires a lower bound.
-
-`run_chisel_trace_replay_xcheck.sh` is the bridge between synthetic reduced
-smokes and a live QEMU/CoreMark window. It accepts a flat or nested commit
-JSONL with `--input-trace`, normalizes it through `trace_schema_adapter.py`,
-replays the bounded row stream through the `LinxCoreTop` commit export in a
-Verilator harness, and compares the resulting DUT JSONL against the same rows
-as QEMU-shaped reference data. When `--input-trace` is omitted it generates a
-four-row fixture covering writeback, store, load, and trap envelopes.
-
-`run_chisel_qemu_trace_replay_xcheck.sh` is the QEMU-facing replay bridge. In
-`--elf` mode it first runs `tools/qemu/run_qemu_commit_trace.sh` to collect a
-QEMU JSONL trace, then runs `run_chisel_trace_replay_xcheck.sh` in
-`generated/chisel-qemu-trace-replay-xcheck`. In `--qemu-trace` mode it skips
-QEMU execution and replays an existing QEMU JSONL trace. Both paths preserve
-the comparator `crosscheck_manifest.json` under the isolated report directory.
-The bridge first normalizes a wider raw window, then slices the replay input to
-the smallest prefix that contains the requested number of non-metadata
-architectural rows. This keeps QEMU BSTART/template/control metadata from
-starving the compare window while avoiding extra DUT tail rows after the
-bounded compare point.
-Metadata filtering must not drop non-sequential control rows. Side-effect-free
-macro/template rows are treated as metadata only when `next_pc == pc + len`;
-rows such as `FRET.STK` carry architectural redirect evidence through
-`next_pc` and must remain in the compare stream.
-
-In `--elf` mode, `--replay-rows` also bounds the raw QEMU prefix collected from
-the FIFO before the wrapper stops QEMU. If QEMU exits before opening or
-producing the FIFO, the reader is killed and the wrapper must fail with an
-empty-trace error rather than hanging. Direct-boot CoreMark-style ET_DYN images
-currently carry physical load segments at `0x40000000`, while the Linx QEMU
-`virt` machine defaults to 128 MiB of RAM. Use an explicit memory argument for
-that class of ELF:
-
-`tools/qemu/run_qemu_commit_trace.sh --max-seconds N` is a hard wall-clock
-limit on every supported host. It uses `timeout`/`gtimeout` when available and
-otherwise starts QEMU in a Python-owned process group, sends `SIGTERM`, then
-escalates to `SIGKILL` after two seconds. A timed-out producer returns `124`;
-bounded-prefix callers may retain already captured rows, but must never leave a
-QEMU process running because a host lacks GNU coreutils.
-
-```bash
-bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh \
-  --build-dir generated/r91-coremark-elf-prefix \
-  --elf tests/benchmarks/build/coremark_real.elf \
-  --max-commits 4 \
-  --replay-rows 128 \
-  --max-seconds 10 \
-  -- -nographic -monitor none -machine virt -m 1280M \
-     -kernel tests/benchmarks/build/coremark_real.elf
-```
-
-R91 evidence for that command captured 128 raw QEMU rows, sliced 5 replay rows
-containing 4 architectural commits, and passed the Chisel replay cross-check
-with `compared_rows: 4` and `mismatch_count: 0`.
-
-The common wrapper exposes the same distinction directly:
-
-```bash
-bash tools/chisel/run_chisel_qemu_crosscheck.sh \
-  --qemu-trace <qemu.jsonl> \
-  --dut-trace <dut.jsonl> \
-  --max-commits 4 \
-  --normalize-rows 8
-```
-
-`--max-commits` is the architectural compare window. `--normalize-rows` is the
-raw row window presented to schema normalization before comparator metadata
-filtering.
-
-For bounded windows, comparator length handling is metadata-aware. If QEMU and
-DUT both terminate after the same metadata-filtered architectural prefix before
-`--max-commits`, the compare passes; this is the expected shape for finite
-expected-row files that still contain side-effect-free marker/sysreg metadata.
-The comparator still fails if the DUT has extra architectural rows or if QEMU
-has remaining architectural rows while the DUT ended before the requested
-bounded window.
-
-QEMU-row replay gate:
-
-```bash
-bash tools/chisel/run_chisel_qemu_trace_replay_xcheck.sh \
-  --elf <direct-boot-smoke.elf> \
-  --max-commits 32 \
-  --max-seconds 30
-```
-
-Reduced live-QEMU ELF gate:
-
-```bash
-bash tools/chisel/build_frontend_fetch_rf_alu_qemu_fixture_elf.sh \
-  --out-dir generated/r100-live-qemu-fixture
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --elf generated/r100-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
-  --expected-rows 3 \
-  --capture-rows 3 \
-  --pc-lo 0x10002 \
-  --pc-hi 0x1000b \
-  --max-seconds 5
-```
-
-This gate captures a bounded QEMU JSONL prefix through a FIFO, validates the
-selected rows with `frontend_fetch_rf_alu_qemu_rows.py`, extracts the same ELF
-PT_LOAD bytes with `FETCH_ELF`, and compares the live fetch RF/ALU DUT rows
-through the common manifest-producing comparator. The PC range skips the legal
-entry `BSTART` for now; block-header execution is a later DUT feature. QEMU
-termination after the bounded rows are captured is expected only when the
-manifest reports `status: "pass"`.
-
-R101 adds the reduced block-marker form:
-
-```bash
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --elf generated/r101-live-qemu-fixture/frontend_fetch_rf_alu_qemu_fixture.elf \
-  --expected-rows 0 \
-  --capture-rows 5 \
-  --allow-block-markers \
-  --max-seconds 5
-```
-
-`--allow-block-markers` passes legal `BSTART`/`BSTOP` rows through the
-expected-row stream as `skip` entries. The Verilator harness fetches and
-decodes them, asserts the reduced marker diagnostics, and requires no ROB
-allocation or issue enqueue for those rows. The comparator receives only the
-non-skip scalar architectural rows. R101 evidence captured five raw QEMU rows
-for `C.BSTART; ADD; ADDI; C.MOVR; C.BSTOP`, compared three scalar commits,
-and produced a manifest with `status: "pass"`, `compared_rows: 3`, and
-`mismatch_count: 0`.
-
-R500 adds a QEMU/reducer-only stop point for fixture validation:
-
-```bash
-bash tools/chisel/run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh \
-  --build-dir generated/r500-replay-loop-qemu-only \
-  --fixture replay-ldi-sdi-ldi-loop \
-  --qemu-only \
-  --expect-load-pcs 0x10002,0x1000a,0x10002,0x1000a \
-  --expect-store-pcs 0x10006,0x10006 \
-  --max-seconds 8
-```
-
-`--qemu-only` still builds the requested fixture, captures the bounded QEMU
-FIFO prefix, and runs `frontend_fetch_rf_alu_qemu_rows.py`, but exits before
-the Verilator harness and does not emit a QEMU/DUT
-`crosscheck_manifest.json`. Treat this as stimulus/reducer evidence only. The
-R500 replay-loop run captured 12 raw QEMU rows, reduced them to 10 preview
-rows, and proved the repeated memory sequence needed by later MDB wait-plan
-work: load PCs `0x10002,0x1000a,0x10002,0x1000a`, store PCs
-`0x10006,0x10006`, with legal skip rows
-`0x10000->0x10002`, `0x1000e->0x10014`, `0x10014->0x10000`, and
-`0x10000->0x10002`.
-
-R501 makes the replay-loop stimulus proof self-checking by adding
-`--expect-load-pcs` and `--expect-store-pcs` to the same wrapper. These
-options compare the reduced preview's exact memory PC sequence before any
-optional RTL run and print the observed load/store PC lists on success.
-
-Full compare gate, once a Chisel commit trace exists:
-
-```bash
-bash tools/chisel/run_chisel_qemu_crosscheck.sh \
-  --qemu-trace <qemu.jsonl> \
-  --dut-trace <chisel.jsonl> \
-  --report-dir <report-dir> \
-  --max-commits 1000
-```
-
-Expected report outputs:
-
-```text
-<report-dir>/qemu.normalized.jsonl
-<report-dir>/dut.normalized.jsonl
-<report-dir>/crosscheck_report.json
-<report-dir>/crosscheck_report.md
-<report-dir>/crosscheck_mismatches.json
-<report-dir>/crosscheck_manifest.json
-```
-
-## Current Status
-
-The adapter, shared C++ commit JSONL writer, wrapper, typed Chisel commit-row
-bundles, reduced ROB Verilator smoke, reduced top Verilator smoke, top trace
-replay smoke, QEMU trace replay bridge,
-frontend-window trace-top Verilator lint, frontend-window trace-top Verilator
-xcheck, live frontend fetch trace-top Verilator xcheck, frontend-window ALU
-trace-top Verilator xcheck, RF-backed ALU trace-top Verilator xcheck, live
-frontend fetch RF-backed ALU trace-top Verilator xcheck, and reduced live
-QEMU ELF fetch RF/ALU xcheck are ready. The common
-wrapper emits a machine-readable `crosscheck_manifest.json` for generated-RTL
-comparisons and future full QEMU-vs-DUT windows.
-`run_chisel_reduced_rob_xcheck.sh` and `run_chisel_top_xcheck.sh` currently
-compare three Verilator-produced rows with zero mismatches.
-`run_chisel_trace_replay_xcheck.sh` proves that a normalized external commit
-row stream can drive the top-level commit observation surface and pass the same
-comparator. `run_chisel_qemu_trace_replay_xcheck.sh` can feed archived or fresh
-QEMU rows into that same replay path while the live Chisel top is still being
-connected. `run_chisel_frontend_trace_top_xcheck.sh` drives raw frontend
-packets containing scalar `ADD`, `ADDI`, and compressed move rows through
-`LinxCoreFrontendTraceTop`, uses the explicit completion surrogate to retire
-the allocated ROB rows, dumps DUT JSONL, and compares three rows against a
-QEMU-shaped reference with zero mismatches.
-`run_chisel_frontend_fetch_trace_top_xcheck.sh` drives a bounded instruction
-window fixture through `FrontendFetchPacketSource`, the legacy window slicer,
-and the reduced
-decode/ROB path in `LinxCoreFrontendFetchTraceTop`, uses the explicit
-completion surrogate to retire allocated ROB rows, and compares three rows
-against a QEMU-shaped reference with zero mismatches. Its manifest under
-`generated/chisel-frontend-fetch-trace-top-xcheck/report` records
-`status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
-`run_chisel_frontend_alu_trace_top_xcheck.sh` drives the same reduced frontend
-smoke through `LinxCoreFrontendAluTraceTop`, replaces the completion surrogate
-with `ReducedScalarAluExecute`, and compares three rows with nonzero source,
-destination, and writeback data against QEMU-shaped reference rows with zero
-mismatches. `run_chisel_frontend_rf_alu_trace_top_xcheck.sh` drives dependent
-scalar rows through `LinxCoreFrontendRfAluTraceTop`, preloads only identity RF
-registers, enqueues rows through the reduced issue queue before draining
-commits, reads later sources from Chisel physical RF writeback state, and
-compares three rows with zero mismatches. Its report directory now includes a
-manifest with `status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
-`run_chisel_frontend_fetch_rf_alu_trace_top_xcheck.sh` drives the same
-dependent scalar smoke through `LinxCoreFrontendFetchRfAluTraceTop`, replaces
-testbench-supplied frontend packets with a live PC request/response source,
-serves instruction bytes from a `FETCH_MEMORY_BIN`, `FETCH_MEMORY_HEX`, or
-`FETCH_ELF` image, reads expected PC/length/source/writeback rows from
-QEMU-shaped JSONL selected by `FETCH_EXPECTED_ROWS`, and preserves RF-backed
-reduced issue and ALU completion. When `FETCH_EXPECTED_ROWS` is unset, the
-wrapper emits `fixture.expected.jsonl` and sizes `--max-commits` from the
-expected row count. It can also derive that expected-row stream from an
-existing QEMU commit JSONL with `FETCH_QEMU_TRACE`; the helper writes
-`qemu.expected.jsonl` only after validating a strict sequential reduced-scalar
-prefix (`ADD`, `ADDI`, `C.MOVI`, or `C.MOVR`, scalar GPRs only, no memory or
-trap side effects).
-Its manifest under
-`generated/chisel-frontend-fetch-rf-alu-trace-top-xcheck/report` records
-`status: "pass"`, `compared_rows: 3`, and `mismatch_count: 0`.
-`run_chisel_frontend_fetch_rf_alu_qemu_elf_xcheck.sh` captures the legal-entry
-fixture ELF through live QEMU, either filters the scalar prefix after
-`BSTART` or preserves `BSTART`/`BSTOP` as reduced skip rows, runs the R99/R101
-row reducer plus R97 sparse ELF memory path, and passes with `status: "pass"`,
-`compared_rows: 3`, and `mismatch_count: 0` under
-`generated/chisel-frontend-fetch-rf-alu-qemu-elf-xcheck/report`.
-Dense packets and non-ALU row enrichment remain later packets.
-The admitted-marker CoreMark path has a clean 6000-row scale baseline under
-`generated/r227-row-order-6000-marker-qemu-elf-xcheck/report`. That run captures
-6000 raw QEMU rows, extracts 5866 expected rows, admits and filters 728 marker
-commits, normalizes 5138 QEMU/DUT rows, compares 5137 rows, and passes with
-`summary.mismatch_count: 0` and no CBSTOP divergence. Its manifest records clean
-LinxCore `b2684c8938b1c4cccd2638f3fcfa5363d7792104`, clean LinxCoreModel
-`3c0878da3aa1e06669b718e93269f094e7244066`, and clean QEMU
-`5cfb672a711bb2172bfe7de6c6b7bd1bdb47e902`; the outer superproject was dirty
-only from unrelated local state.
-The follow-on R228 gate under
-`generated/r228-row-order-8192-marker-qemu-elf-xcheck/report` extends that
-baseline to 8192 raw QEMU rows, 8058 expected rows, 885 filtered marker commits,
-7173 normalized QEMU/DUT rows, and 7172 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R229 gate under
-`generated/r229-row-order-12288-marker-qemu-elf-xcheck/report` extends it again
-to 12288 raw QEMU rows, 12154 expected rows, 1177 filtered marker commits,
-10977 normalized QEMU/DUT rows, and 10976 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R230 gate under
-`generated/r230-row-order-16384-marker-qemu-elf-xcheck/report` extends it again
-to 16384 raw QEMU rows, 16250 expected rows, 1470 filtered marker commits,
-14780 normalized QEMU/DUT rows, and 14779 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R231 gate under
-`generated/r231-row-order-24576-marker-qemu-elf-xcheck/report` extends it again
-to 24576 raw QEMU rows, 24442 expected rows, 2055 filtered marker commits,
-22387 normalized QEMU/DUT rows, and 22386 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R232 gate under
-`generated/r232-row-order-32768-marker-qemu-elf-xcheck/report` extends it again
-to 32768 raw QEMU rows, 32634 expected rows, 2640 filtered marker commits,
-29994 normalized QEMU/DUT rows, and 29993 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R233 gate under
-`generated/r233-row-order-49152-marker-qemu-elf-xcheck/report` extends it again
-to 49152 raw QEMU rows, 49018 expected rows, 3811 filtered marker commits,
-45207 normalized QEMU/DUT rows, and 45206 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R234 gate under
-`generated/r234-row-order-65536-marker-qemu-elf-xcheck/report` extends it again
-to 65536 raw QEMU rows, 65402 expected rows, 4981 filtered marker commits,
-60421 normalized QEMU/DUT rows, and 60420 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R235 gate under
-`generated/r235-row-order-98304-marker-qemu-elf-xcheck/report` extends it again
-to 98304 raw QEMU rows, 98170 expected rows, 7321 filtered marker commits,
-90849 normalized QEMU/DUT rows, and 90848 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R236 gate under
-`generated/r236-row-order-131072-marker-qemu-elf-xcheck/report` extends it again
-to 131072 raw QEMU rows, 130938 expected rows, 9662 filtered marker commits,
-121276 normalized QEMU/DUT rows, and 121275 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R237 gate under
-`generated/r237-row-order-196608-marker-qemu-elf-xcheck/report` extends it again
-to 196608 raw QEMU rows, 196474 expected rows, 14343 filtered marker commits,
-182131 normalized QEMU/DUT rows, and 182130 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The R238 gate under
-`generated/r238-row-order-262144-marker-qemu-elf-xcheck/report` extends it again
-to 262144 raw QEMU rows, 262010 expected rows, 19024 filtered marker commits,
-242986 normalized QEMU/DUT rows, and 242985 compared rows with
-`summary.mismatch_count: 0` and no CBSTOP divergence.
-The QEMU trace replay bridge now has bounded live-ELF prefix evidence using
-`tests/benchmarks/build/coremark_real.elf` with explicit `-m 1280M`; the
-default 128 MiB QEMU run fails fast with an empty-trace error because the ELF
-segment at `0x40000000` does not fit.
-Full-core QEMU comparison remains blocked until the Chisel top emits live
-architectural commit rows from real fetch, full issue, LSU, and recovery paths.
+The canonical frontend trace top is a bounded reduced verification surface.
+It is useful for frontend-packet to commit-row plumbing and comparator closure;
+it is not evidence for a bootable full core, cache hierarchy, or unrestricted
+QEMU/CoreMark execution.
