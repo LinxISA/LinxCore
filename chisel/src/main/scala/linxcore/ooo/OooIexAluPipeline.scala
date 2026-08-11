@@ -73,11 +73,40 @@ object OooIexAluPipeline {
   val MoveImmediateOpcodes: Seq[Int] = Seq(
     FrontendOpcodeDecodeTable.OP_C_MOVI)
 
+  val LoadImmediateOpcodes: Seq[Int] = Seq(
+    FrontendOpcodeDecodeTable.OP_LUI,
+    FrontendOpcodeDecodeTable.OP_HL_LUI,
+    FrontendOpcodeDecodeTable.OP_HL_LIS,
+    FrontendOpcodeDecodeTable.OP_HL_LIU)
+
   val MoveRegisterOpcodes: Seq[Int] = Seq(
     FrontendOpcodeDecodeTable.OP_C_MOVR)
 
+  val CompactSignExtendOpcodes: Seq[Int] = Seq(
+    FrontendOpcodeDecodeTable.OP_C_SEXT_B,
+    FrontendOpcodeDecodeTable.OP_C_SEXT_H,
+    FrontendOpcodeDecodeTable.OP_C_SEXT_W)
+
+  val RegisterShiftOpcodes: Seq[Int] = Seq(
+    FrontendOpcodeDecodeTable.OP_SLL,
+    FrontendOpcodeDecodeTable.OP_SLLW,
+    FrontendOpcodeDecodeTable.OP_SRA,
+    FrontendOpcodeDecodeTable.OP_SRAW,
+    FrontendOpcodeDecodeTable.OP_SRL,
+    FrontendOpcodeDecodeTable.OP_SRLW)
+
+  val ImmediateShiftOpcodes: Seq[Int] = Seq(
+    FrontendOpcodeDecodeTable.OP_SLLI,
+    FrontendOpcodeDecodeTable.OP_SLLIW,
+    FrontendOpcodeDecodeTable.OP_SRAI,
+    FrontendOpcodeDecodeTable.OP_SRAIW,
+    FrontendOpcodeDecodeTable.OP_SRLI,
+    FrontendOpcodeDecodeTable.OP_SRLIW)
+
   val SupportedOpcodes: Seq[Int] = ImmediateOpcodes ++
-    CompactRegisterOpcodes ++ MoveImmediateOpcodes ++ MoveRegisterOpcodes
+    CompactRegisterOpcodes ++ MoveImmediateOpcodes ++ LoadImmediateOpcodes ++
+    MoveRegisterOpcodes ++ CompactSignExtendOpcodes ++ RegisterShiftOpcodes ++
+    ImmediateShiftOpcodes
 }
 
 /** One-cycle integer ALU with retained W1 bypass and retained W2 terminal row.
@@ -170,8 +199,49 @@ class OooIexAluPipeline(
       result := src0 - src1
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVI)) {
       result := imm
+    }.elsewhen(isOneOf(op, LoadImmediateOpcodes)) {
+      result := imm
     }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_MOVR)) {
       result := src0
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SEXT_B)) {
+      result := Cat(Fill(p.pcWidth - 8, src0(7)), src0(7, 0))
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SEXT_H)) {
+      result := Cat(Fill(p.pcWidth - 16, src0(15)), src0(15, 0))
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_C_SEXT_W)) {
+      result := Cat(Fill(p.pcWidth - 32, src0(31)), src0(31, 0))
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLL) ||
+        op === opcode(FrontendOpcodeDecodeTable.OP_SLLI)) {
+      val shiftAmount = Mux(
+        op === opcode(FrontendOpcodeDecodeTable.OP_SLL), src1(5, 0), imm(5, 0))
+      result := src0 << shiftAmount
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SRL) ||
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRLI)) {
+      val shiftAmount = Mux(
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRL), src1(5, 0), imm(5, 0))
+      result := src0 >> shiftAmount
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SRA) ||
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRAI)) {
+      val shiftAmount = Mux(
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRA), src1(5, 0), imm(5, 0))
+      result := (src0.asSInt >> shiftAmount).asUInt
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SLLW) ||
+        op === opcode(FrontendOpcodeDecodeTable.OP_SLLIW)) {
+      val shiftAmount = Mux(
+        op === opcode(FrontendOpcodeDecodeTable.OP_SLLW), src1(4, 0), imm(4, 0))
+      val shifted = (src0(31, 0) << shiftAmount)(31, 0)
+      result := Cat(Fill(p.pcWidth - 32, shifted(31)), shifted)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SRLW) ||
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRLIW)) {
+      val shiftAmount = Mux(
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRLW), src1(4, 0), imm(4, 0))
+      val shifted = src0(31, 0) >> shiftAmount
+      result := Cat(Fill(p.pcWidth - 32, shifted(31)), shifted)
+    }.elsewhen(op === opcode(FrontendOpcodeDecodeTable.OP_SRAW) ||
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRAIW)) {
+      val shiftAmount = Mux(
+        op === opcode(FrontendOpcodeDecodeTable.OP_SRAW), src1(4, 0), imm(4, 0))
+      val shifted = (src0(31, 0).asSInt >> shiftAmount).asUInt
+      result := Cat(Fill(p.pcWidth - 32, shifted(31)), shifted)
     }
 
     terminal.writebacks(0).valid := true.B
@@ -193,13 +263,17 @@ class OooIexAluPipeline(
 
   val expectedSourceCount = WireDefault(0.U(p.sourceCountWidth.W))
   when(isOneOf(incomingOpcode, ImmediateOpcodes) ||
-      isOneOf(incomingOpcode, MoveRegisterOpcodes)) {
+      isOneOf(incomingOpcode, ImmediateShiftOpcodes) ||
+      isOneOf(incomingOpcode,
+        MoveRegisterOpcodes ++ CompactSignExtendOpcodes)) {
     expectedSourceCount := 1.U
-  }.elsewhen(isOneOf(incomingOpcode, CompactRegisterOpcodes)) {
+  }.elsewhen(isOneOf(incomingOpcode,
+      CompactRegisterOpcodes ++ RegisterShiftOpcodes)) {
     expectedSourceCount := 2.U
   }
   val needsImmediate = isOneOf(incomingOpcode,
-    ImmediateOpcodes ++ MoveImmediateOpcodes)
+    ImmediateOpcodes ++ ImmediateShiftOpcodes ++ MoveImmediateOpcodes ++
+      LoadImmediateOpcodes)
   val logicalSourceMask = VecInit(
     incoming.i2.row.sources.map(_.valid)).asUInt
   val destinationMask = VecInit(

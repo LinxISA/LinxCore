@@ -79,6 +79,10 @@ LEGACY_SYMBOL_OVERRIDES = {
 
 OP_ID_CATEGORY_OVERRIDES = {
     # Preserve existing opcode IDs when repairing the product category.
+    "OP_C_LDI": "COMPRESSED",
+    "OP_C_LWI": "COMPRESSED",
+    "OP_C_SDI": "COMPRESSED",
+    "OP_C_SWI": "COMPRESSED",
     "OP_HL_SDI": "ALU_INT",
     "OP_HL_SDI_PO": "ALU_INT",
     "OP_HL_SDI_PR": "ALU_INT",
@@ -197,6 +201,8 @@ def mnemonic_to_symbol(mnemonic: str) -> str:
 
 def classify_major_minor(mnemonic: str) -> tuple[str, str]:
     m = mnemonic.lower()
+    compact_loads = {"c_ldi", "c_lwi"}
+    compact_stores = {"c_sdi", "c_swi"}
     hl_sdi_immediate_stores = {
         "hl_sdi",
         "hl_sdi_u",
@@ -219,6 +225,10 @@ def classify_major_minor(mnemonic: str) -> tuple[str, str]:
         return "STORE", "atomic"
     if m in {"casb", "cash", "casw", "casd", "dma"}:
         return "ALU_INT", "atomic"
+    if m in compact_loads:
+        return "LOAD", "compressed_load"
+    if m in compact_stores:
+        return "STORE", "compressed_store"
     if m.startswith("c_"):
         if m.startswith("c_bstart") or m == "c_bstop":
             return "BLOCK_BOUNDARY", "c_boundary"
@@ -371,6 +381,8 @@ OOO_MULTICYCLE_ALU_SYMBOLS = {
     "OP_HL_DIV", "OP_HL_DIVU", "OP_HL_DIVUW", "OP_HL_DIVW",
     "OP_HL_REM", "OP_HL_REMU", "OP_HL_REMUW", "OP_HL_REMW",
 }
+OOO_COMPACT_LOAD_SYMBOLS = {"OP_C_LDI", "OP_C_LWI"}
+OOO_COMPACT_STORE_SYMBOLS = {"OP_C_SDI", "OP_C_SWI"}
 
 
 def _is_ooo_atomic_symbol(symbol: str) -> bool:
@@ -608,6 +620,12 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
     if major == "LOAD":
         dispatch("SCALAR_LOAD", "AGU", "LSU")
         metadata.update({"may_trap": True, "may_trap_late": True, "memory_request_count": 1})
+        if symbol in OOO_COMPACT_LOAD_SYMBOLS:
+            metadata.update({
+                "p_destination_count": 0,
+                "t_allocation_count": 1,
+                "reason": "compact scalar load allocates the next T destination",
+            })
         return metadata
 
     if major == "STORE":
@@ -627,6 +645,13 @@ def derive_ooo_metadata(record: Dict[str, object]) -> Dict[str, object]:
             "p_source_count": 3 if symbol in OOO_INDEXED_SCALAR_STORE_SYMBOLS
             else metadata["p_source_count"],
         })
+        if symbol in OOO_COMPACT_STORE_SYMBOLS:
+            metadata.update({
+                # The encoded base is a P source; T#1 is an architectural
+                # relative source inserted by FrontendOperandDecode.
+                "p_source_count": 2,
+                "reason": "compact scalar store consumes base plus relative T#1",
+            })
         return metadata
 
     if major == "BRU_SETC_CMP":

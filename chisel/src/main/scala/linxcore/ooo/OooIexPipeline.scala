@@ -17,7 +17,7 @@ class OooIexPipelineIO(
     val requireStoreReservation: Boolean = false) extends Bundle {
   val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = if (requireStoreReservation) Some(
-    Decoupled(new OooIexIssueRow(p))) else None
+    Vec(core.iex.stdPipes, Decoupled(new OooIexIssueRow(p)))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))

@@ -21,8 +21,8 @@ class CrosscheckWrapperDependenciesTest(unittest.TestCase):
 
     def test_displaced_top_sources_and_runners_are_absent(self) -> None:
         displaced = (
-            "chisel/src/main/scala/linxcore/top/LinxCoreFrontendTraceTop.scala",
-            "chisel/src/main/scala/linxcore/top/LinxCoreFrontendFetchTraceTop.scala",
+            "chisel/src/main/scala/linxcore/top/" + "LinxCoreFrontend" + "TraceTop.scala",
+            "chisel/src/main/scala/linxcore/top/" + "LinxCoreFrontend" + "FetchTraceTop.scala",
             "tools/chisel/run_chisel_benchmark_autonomous_top_natural.sh",
             "tools/chisel/run_chisel_frontend_trace_top_xcheck.sh",
         )

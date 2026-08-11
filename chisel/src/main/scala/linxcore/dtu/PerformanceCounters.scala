@@ -13,8 +13,8 @@ object PerformanceCounterIndex {
 }
 
 class PerformanceCountersIO(val p: CoreParams) extends Bundle {
-  val traceAccepted = Input(Bool())
-  val traceDropped = Input(Bool())
+  val traceAccepted = Input(UInt(64.W))
+  val traceDropped = Input(UInt(64.W))
   val commitObserved = Input(Bool())
   val commitCount = Input(UInt(
     linxcore.top.interface.PrefixPacketContract.countWidth(
@@ -30,13 +30,13 @@ class PerformanceCounters(val p: CoreParams) extends Module {
 
   private val counters = RegInit(VecInit(
     Seq.fill(p.dtu.performanceCounterCount)(0.U(64.W))))
-  when(io.traceAccepted) {
+  when(io.traceAccepted.orR) {
     counters(PerformanceCounterIndex.TraceAccepted) :=
-      counters(PerformanceCounterIndex.TraceAccepted) + 1.U
+      counters(PerformanceCounterIndex.TraceAccepted) + io.traceAccepted
   }
-  when(io.traceDropped) {
+  when(io.traceDropped.orR) {
     counters(PerformanceCounterIndex.TraceDropped) :=
-      counters(PerformanceCounterIndex.TraceDropped) + 1.U
+      counters(PerformanceCounterIndex.TraceDropped) + io.traceDropped
   }
   when(io.commitObserved) {
     counters(PerformanceCounterIndex.CommitTransactions) :=

@@ -252,6 +252,58 @@ class OooD1DecodeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("normalizes compact load and store memory controls exactly once") {
+    val p = OooParams()
+    simulate(new OooD1Decode(p)) { dut =>
+      clear(dut)
+      val cLwi = encoded("OP_C_LWI", (15, 11, 0x1e), (10, 6, 3))
+      val cLdi = encoded("OP_C_LDI", (15, 11, 2), (10, 6, 4))
+      val cSwi = encoded("OP_C_SWI", (15, 11, 0x1f), (10, 6, 5))
+      val cSdi = encoded("OP_C_SDI", (15, 11, 1), (10, 6, 6))
+      drive(dut, 0, "OP_C_LWI", cLwi, 40, 0x4000)
+      drive(dut, 1, "OP_C_LDI", cLdi, 41, 0x4002)
+      drive(dut, 2, "OP_C_SWI", cSwi, 42, 0x4004)
+      drive(dut, 3, "OP_C_SDI", cSdi, 43, 0x4006)
+      dut.io.in.bits.validMask.poke("b1111".U)
+      dut.io.in.valid.poke(true.B)
+
+      val wordLoad = dut.io.out.bits.uops(0)
+      wordLoad.recipe.recipeKind.expect(OooOpcodeRecipeKind.ScalarLoad.U)
+      wordLoad.recipe.sideEffectOwner.expect(OooSideEffectOwner.Lsu.U)
+      wordLoad.recipe.pDestinationCount.expect(0.U)
+      wordLoad.recipe.tAllocationCount.expect(1.U)
+      wordLoad.destinations(0).kind.expect(DestinationKind.T)
+      wordLoad.memory.valid.expect(true.B)
+      wordLoad.memory.isLoad.expect(true.B)
+      wordLoad.memory.accessBytes.expect(4.U)
+      wordLoad.memory.signExtend.expect(true.B)
+      wordLoad.memory.offset.expect(BigInt("fffffffffffffff8", 16).U)
+      wordLoad.memory.addressSourceMask.expect(1.U)
+
+      val doubleLoad = dut.io.out.bits.uops(1)
+      doubleLoad.destinations(0).kind.expect(DestinationKind.T)
+      doubleLoad.memory.accessBytes.expect(8.U)
+      doubleLoad.memory.signExtend.expect(false.B)
+      doubleLoad.memory.offset.expect(16.U)
+
+      val wordStore = dut.io.out.bits.uops(2)
+      wordStore.recipe.recipeKind.expect(OooOpcodeRecipeKind.ScalarStore.U)
+      wordStore.memory.isStore.expect(true.B)
+      wordStore.memory.accessBytes.expect(4.U)
+      wordStore.memory.offset.expect(BigInt("fffffffffffffffc", 16).U)
+      wordStore.memory.addressSourceMask.expect(1.U)
+      wordStore.memory.dataSourceMask.expect(2.U)
+      wordStore.sources(0).operandClass.expect(OperandClass.P)
+      wordStore.sources(1).operandClass.expect(OperandClass.T)
+
+      val doubleStore = dut.io.out.bits.uops(3)
+      doubleStore.memory.accessBytes.expect(8.U)
+      doubleStore.memory.offset.expect(8.U)
+      doubleStore.memory.addressSourceMask.expect(1.U)
+      doubleStore.memory.dataSourceMask.expect(2.U)
+    }
+  }
+
   test("normalizes 32 and 48-bit ADDTPC page displacements to bytes") {
     val p = OooParams()
     simulate(new OooD1Decode(p)) { dut =>

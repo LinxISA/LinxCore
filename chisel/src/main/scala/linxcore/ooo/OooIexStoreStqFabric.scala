@@ -1,8 +1,8 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, Mux1H, OHToUInt, PopCount, RRArbiter, Valid,
-  log2Ceil}
+import chisel3.util.{Decoupled, Mux1H, OHToUInt, PopCount, PriorityEncoder,
+  RRArbiter, UIntToOH, Valid, log2Ceil}
 
 import linxcore.lsu.{MDBConflictStoreProbe, STQDataBank, STQEntryBank,
   STQEntryBankRow, STQEntryStatus, STQLoadForwardQuery,
@@ -10,13 +10,14 @@ import linxcore.lsu.{MDBConflictStoreProbe, STQDataBank, STQEntryBank,
   STQStoreType}
 import linxcore.params.CoreParams
 import linxcore.top.interface.{RecoveryPhase, RecoveryPlan,
-  RecoveryPlanContract, RecoveryTargetIO}
+  RecoveryPlanContract, RecoveryTargetIO, RobResolveTxn}
 
 class OooIexStoreStqFabricIO(
     val core: CoreParams,
     val stqEntries: Int) extends Bundle {
   val p: OooParams = OooIexPhysicalProfile.fromCoreParams(core).params
-  val reserve = Flipped(Decoupled(new OooIexIssueRow(p)))
+  val reserve = Flipped(Vec(core.iex.stdPipes,
+    Decoupled(new OooIexIssueRow(p))))
   val storeAddress = Flipped(Vec(core.lsu.storePipes,
     Decoupled(new OooIexExecuteTransaction(p))))
   val storeData = Flipped(Vec(core.lsu.storePipes,
@@ -58,6 +59,7 @@ class OooIexStoreStqFabricIO(
   val recoveryFreeMask = Output(UInt(stqEntries.W))
   val recoveryBlockedMask = Output(UInt(stqEntries.W))
   val recoveryRejected = Output(Bool())
+  val completion = Decoupled(new RobResolveTxn(core))
 
   val rows = Output(Vec(stqEntries, new STQEntryBankRow(
     p.robIdentityGroupsPerStid,
@@ -71,7 +73,8 @@ class OooIexStoreStqFabricIO(
     brobGenerationWidth = p.brobGenerationWidth,
     memberIndexWidth = p.robMemberIndexWidth,
     residentGenerationWidth = p.residentGenerationWidth,
-    leaseGenerationWidth = p.executeSlotGenerationWidth)))
+    leaseGenerationWidth = p.executeSlotGenerationWidth,
+    transactionIdWidth = p.transactionIdWidth)))
   val occupiedMask = Output(UInt(stqEntries.W))
   val addrReadyMask = Output(UInt(stqEntries.W))
   val dataReadyMask = Output(UInt(stqEntries.W))
@@ -100,7 +103,8 @@ class OooIexStoreStqFabric(
   require(core.lsu.storePipes == 2,
     "the current store fabric owns exactly two STA and two STD pipes")
   val io = IO(new OooIexStoreStqFabricIO(core, stqEntries))
-  val reservation = Module(new OooStqReservationProjection(p, stqEntries))
+  val reservations = Seq.fill(core.iex.stdPipes)(
+    Module(new OooStqReservationProjection(p, stqEntries)))
   val recovery = Module(new OooStqRecoveryProjection(core, stqEntries))
   val stores = Seq.fill(core.lsu.storePipes)(
     Module(new OooIexStorePipeline(core, stqEntries)))
@@ -120,7 +124,9 @@ class OooIexStoreStqFabric(
     memberIndexWidth = p.robMemberIndexWidth,
     residentGenerationWidth = p.residentGenerationWidth,
     leaseGenerationWidth = p.executeSlotGenerationWidth,
-    maxReserveBeats = p.maxMemoryRequestsPerInstruction))
+    maxReserveBeats = core.iex.stdPipes *
+      p.maxMemoryRequestsPerInstruction,
+    transactionIdWidth = p.transactionIdWidth))
   val dataBank = Module(new STQDataBank(
     entries = stqEntries,
     peIdWidth = p.peIdWidth,
@@ -204,20 +210,53 @@ class OooIexStoreStqFabric(
     preparing || pending
   }
 
-  val reserveFence = stidFenced(io.reserve.bits.stid)
-
-  // Shape-check the offered payload independently of valid so Decoupled
-  // ready never feeds back through a producer that atomically joins valid to
-  // this reservation dependency.
-  reservation.io.inputValid := !reserveFence
-  reservation.io.input := io.reserve.bits
-  stq.io.reserveBatchValid := io.reserve.valid && reservation.io.reserveValid
-  stq.io.reserveBatchMask := reservation.io.reserveMask
-  stq.io.reserveBatch := reservation.io.reserve
-  io.reserve.ready := !reserveFence && reservation.io.reserveValid &&
-    stq.io.reserveBatchReady
-  io.reserveAccepted := io.reserve.fire
-  io.reserveRejected := io.reserve.valid && reservation.io.rejected
+  val reserveLaneExact = Wire(Vec(io.reserve.length, Bool()))
+  for (lane <- io.reserve.indices) {
+    val reserveFence = stidFenced(io.reserve(lane).bits.stid)
+    reservations(lane).io.inputValid := !reserveFence
+    reservations(lane).io.input := io.reserve(lane).bits
+    reserveLaneExact(lane) := !io.reserve(lane).valid ||
+      (!reserveFence && reservations(lane).io.reserveValid)
+  }
+  val anyReserve = io.reserve.map(_.valid).reduce(_ || _)
+  val allReserveExact = reserveLaneExact.asUInt.andR
+  stq.io.reserveBatchValid := anyReserve && allReserveExact
+  private val reserveSources = io.reserve.length *
+    p.maxMemoryRequestsPerInstruction
+  val reserveSourceValid = Wire(Vec(reserveSources, Bool()))
+  val reserveSourcePayload = Wire(Vec(reserveSources,
+    chiselTypeOf(stq.io.reserveBatch.head)))
+  for (lane <- io.reserve.indices; beat <- 0 until p.maxMemoryRequestsPerInstruction) {
+    val source = lane * p.maxMemoryRequestsPerInstruction + beat
+    reserveSourceValid(source) := io.reserve(lane).valid &&
+      reservations(lane).io.reserveMask(beat)
+    reserveSourcePayload(source) := reservations(lane).io.reserve(beat)
+  }
+  val reserveCompactedValid = Wire(Vec(reserveSources, Bool()))
+  val reserveCompactedPayload = Wire(Vec(reserveSources,
+    chiselTypeOf(stq.io.reserveBatch.head)))
+  for (slot <- 0 until reserveSources) {
+    val selected = VecInit((0 until reserveSources).map { source =>
+      val rank = if (source == 0) 0.U else
+        PopCount(reserveSourceValid.take(source))
+      reserveSourceValid(source) && rank === slot.U
+    })
+    reserveCompactedValid(slot) := selected.asUInt.orR
+    reserveCompactedPayload(slot) := 0.U.asTypeOf(
+      reserveCompactedPayload(slot))
+    for (source <- 0 until reserveSources) {
+      when(selected(source)) {
+        reserveCompactedPayload(slot) := reserveSourcePayload(source)
+      }
+    }
+  }
+  stq.io.reserveBatchMask := reserveCompactedValid.asUInt
+  stq.io.reserveBatch := reserveCompactedPayload
+  io.reserve.foreach(_.ready := allReserveExact && stq.io.reserveBatchReady)
+  io.reserveAccepted := io.reserve.map(_.fire).reduce(_ || _)
+  io.reserveRejected := io.reserve.indices.map { lane =>
+    io.reserve(lane).valid && reservations(lane).io.rejected
+  }.reduce(_ || _)
 
   io.recoveryApplied := matchingApply
   stq.io.exactRecoveryValid := matchingApply
@@ -424,6 +463,103 @@ class OooIexStoreStqFabric(
     projectLateStaProbe(io.lateStaProbe.bits, accepted)
   }
 
+  // A store resolves only after every semantic beat has accepted both its
+  // STA and STD half. The STQ is the canonical join owner, so the completion
+  // token is retained here until OOO accepts it and cannot be reconstructed
+  // from an IEX pipe-local pulse.
+  val completionPublished = RegInit(0.U(stqEntries.W))
+  val completionPending = RegInit(false.B)
+  val completionPendingBits = Reg(new RobResolveTxn(core))
+  val completionPendingMask = Reg(UInt(stqEntries.W))
+
+  val reservationAllocatedMask = stq.io.reserveBatchLeases.map { lease =>
+    Mux(lease.valid, UIntToOH(lease.index, stqEntries), 0.U(stqEntries.W))
+  }.reduce(_ | _)
+  val completionClearMask = stq.io.exactRecoveryAcceptedMask |
+    stq.io.commitFreeAcceptedMask | reservationAllocatedMask
+  val completionPendingInvalidated = completionPending &&
+    (completionPendingMask & completionClearMask).orR
+
+  io.completion.valid := completionPending && !completionPendingInvalidated &&
+    !recoveryPending
+  io.completion.bits := completionPendingBits
+  val completionFire = io.completion.fire
+  val completionSetMask = Mux(completionFire, completionPendingMask,
+    0.U(stqEntries.W))
+  val completionVisibleMask = (completionPublished | completionSetMask) &
+    ~completionClearMask
+
+  val completionCandidates = Wire(Vec(stqEntries, Bool()))
+  val completionCandidateMasks = Wire(Vec(stqEntries, UInt(stqEntries.W)))
+  for (headIndex <- 0 until stqEntries) {
+    val head = stq.io.rows(headIndex)
+    val requestCountLegal = head.logicalRequestCount === 1.U ||
+      head.logicalRequestCount === 2.U
+    val beatMatches = Wire(Vec(p.maxMemoryRequestsPerInstruction,
+      UInt(stqEntries.W)))
+    val beatExact = Wire(Vec(p.maxMemoryRequestsPerInstruction, Bool()))
+    for (beat <- 0 until p.maxMemoryRequestsPerInstruction) {
+      val required = beat.U < head.logicalRequestCount
+      val matches = VecInit(stq.io.rows.zipWithIndex.map { case (row, index) =>
+        row.valid && row.status === STQEntryStatus.Wait &&
+          row.logicalStoreValid && row.exactOwner.valid &&
+          row.exactOwner.nativeBidValid &&
+          row.transactionId === head.transactionId &&
+          row.exactOwner.asUInt === head.exactOwner.asUInt &&
+          row.logicalFirstLsid === head.logicalFirstLsid &&
+          row.logicalFirstStoreId === head.logicalFirstStoreId &&
+          row.logicalRequestCount === head.logicalRequestCount &&
+          row.logicalBeat === beat.U && row.addrReady && row.dataReady &&
+          !completionVisibleMask(index) && !completionClearMask(index)
+      })
+      beatMatches(beat) := matches.asUInt
+      beatExact(beat) := Mux(required, PopCount(matches) === 1.U,
+        !matches.asUInt.orR)
+    }
+    completionCandidateMasks(headIndex) := beatMatches.reduce(_ | _)
+    completionCandidates(headIndex) := !recoveryPending &&
+      head.valid && head.status === STQEntryStatus.Wait &&
+      head.logicalStoreValid && head.logicalBeat === 0.U &&
+      head.exactOwner.valid && head.exactOwner.nativeBidValid &&
+      requestCountLegal && beatExact.asUInt.andR
+  }
+
+  val completionCandidateValid = completionCandidates.asUInt.orR
+  val completionCandidateIndex = PriorityEncoder(completionCandidates.asUInt)
+  val completionCandidate = stq.io.rows(completionCandidateIndex)
+  val completionCandidateMask = Mux1H(completionCandidates,
+    completionCandidateMasks)
+
+  val completionCanReload = !completionPending || completionFire ||
+    completionPendingInvalidated
+  when(completionCanReload) {
+    when(completionCandidateValid) {
+      completionPending := true.B
+      completionPendingMask := completionCandidateMask
+      completionPendingBits := 0.U.asTypeOf(completionPendingBits)
+      completionPendingBits.transactionId :=
+        completionCandidate.transactionId
+      completionPendingBits.rob.peId := completionCandidate.exactOwner.peId
+      completionPendingBits.rob.stid := completionCandidate.exactOwner.stid
+      completionPendingBits.rob.ridSlot :=
+        completionCandidate.exactOwner.ridSlot
+      completionPendingBits.rob.ridGeneration :=
+        completionCandidate.exactOwner.ridGeneration
+      completionPendingBits.rob.memberIndex :=
+        completionCandidate.exactOwner.memberIndex
+      completionPendingBits.rob.residentGeneration :=
+        completionCandidate.exactOwner.residentGeneration
+      completionPendingBits.rob.bid :=
+        completionCandidate.exactOwner.nativeBid
+      completionPendingBits.rob.brobGeneration :=
+        completionCandidate.exactOwner.brobGeneration
+    }.otherwise {
+      completionPending := false.B
+      completionPendingMask := 0.U
+    }
+  }
+  completionPublished := completionVisibleMask
+
   val joinedRows = Wire(chiselTypeOf(io.rows))
   for (index <- 0 until stqEntries) {
     joinedRows(index) := stq.io.rows(index)
@@ -439,7 +575,7 @@ class OooIexStoreStqFabric(
   io.storePipelinesOccupied := VecInit(stores.map(_.io.occupied)).asUInt
   io.empty := stq.io.empty && dataBank.io.empty &&
     !loadForward.io.occupied.orR &&
-    !io.storePipelinesOccupied.orR && !recoveryPending
+    !io.storePipelinesOccupied.orR && !completionPending && !recoveryPending
 
   when(io.recovery.apply.valid) {
     assert(matchingApply,
@@ -449,7 +585,9 @@ class OooIexStoreStqFabric(
     assert(matchingAbort,
       "store/STQ Abort must match one exact prepared recovery transaction")
   }
-  when(io.reserve.fire) {
+  when(io.reserve.map(_.fire).reduce(_ || _)) {
+    assert(io.reserve.map(reserve => !reserve.valid || reserve.fire).reduce(_ && _),
+      "one presented store-reservation prefix must fire atomically")
     assert(stq.io.reserveBatchAccepted,
       "store reservation and canonical STQ allocation must fire atomically")
   }

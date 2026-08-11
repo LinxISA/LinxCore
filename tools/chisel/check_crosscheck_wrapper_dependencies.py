@@ -30,7 +30,7 @@ def errors() -> list[str]:
         for token in tokens:
             if token not in source:
                 result.append(f"{path.relative_to(ROOT)} lacks {token}")
-    for root in (ROOT / "chisel/src/main/scala", ROOT / "tools/chisel"):
+    for root in (ROOT / "chisel/src/main/scala", ROOT / "tools/chisel", ROOT / "tests"):
         for path in root.rglob("*"):
             if not path.is_file() or path.suffix not in {".scala", ".sh", ".cpp", ".py"}:
                 continue

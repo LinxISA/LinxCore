@@ -122,7 +122,6 @@ class OooIexOperandFiles(val p: OooParams = OooParams()) extends Module {
     val ownerExact = stidInRange && tagInRange &&
       pOwnerValid(safeTag) &&
       pOwnerStid(safeTag) === request.bits.stid &&
-      pOwnerEpoch(safeTag) === request.bits.epoch &&
       pOwnerGeneration(safeTag) === request.bits.source.ptagGeneration
     pFile.io.readValid(port) := request.valid &&
       request.bits.source.operandClass === OperandClass.P &&

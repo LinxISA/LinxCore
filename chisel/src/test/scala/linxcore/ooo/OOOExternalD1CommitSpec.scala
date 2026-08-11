@@ -3,7 +3,8 @@ package linxcore.ooo
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import linxcore.iex.OOOIEXLSUActivationParams
-import linxcore.params.ParamProfiles
+import linxcore.params.{ParamProfiles, SimulationParamProfiles}
+import linxcore.common.TemplateRowKind
 import linxcore.top.interface.FrontEndOpKind
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -17,8 +18,7 @@ class OOOExternalD1CommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
-    dut.io.iex.fastWriteback.ready.poke(true.B)
-    dut.io.iex.fastWakeup.ready.poke(true.B)
+    dut.io.iex.fastResult.ready.poke(true.B)
     dut.io.iex.pcBufferReadAddress.foreach(
       _.poke(0.U.asTypeOf(dut.io.iex.pcBufferReadAddress.head)))
     dut.io.iex.robNoflushReady.valid.poke(false.B)
@@ -35,6 +35,8 @@ class OOOExternalD1CommitSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.recoveryEvent.valid.poke(false.B)
     dut.io.iex.recoveryEvent.bits.poke(
       0.U.asTypeOf(dut.io.iex.recoveryEvent.bits))
+    dut.io.storeResolve.valid.poke(false.B)
+    dut.io.storeResolve.bits.poke(0.U.asTypeOf(dut.io.storeResolve.bits))
     dut.io.commit.ready.poke(true.B)
     dut.io.trap.ready.poke(true.B)
     dut.io.interrupt.valid.poke(false.B)
@@ -168,6 +170,71 @@ class OOOExternalD1CommitSpec extends AnyFunSuite with ChiselSim {
       dut.io.commit.bits.entries.head.rob.expect(identity)
       dut.clock.step()
       dut.io.commit.valid.expect(false.B)
+    }
+  }
+
+  test("d1-reserved-tail reserves ROB groups beyond an unpublished RENU prefix") {
+    val p = SimulationParamProfiles.W2
+    simulate(new OOO(p)) { dut =>
+      initialize(dut)
+      dut.io.iex.storeDispatch.foreach(_.ready.poke(false.B))
+
+      def sendTemplate(
+          opcodes: Seq[TemplateRowKind.Type],
+          firstOrdinal: Int): Unit = {
+        dut.io.fromCtu.bits.poke(0.U.asTypeOf(dut.io.fromCtu.bits))
+        dut.io.fromCtu.bits.count.poke(opcodes.length.U)
+        opcodes.zipWithIndex.foreach { case (opcode, lane) =>
+          val entry = dut.io.fromCtu.bits.entries(lane)
+          entry.kind.poke(FrontEndOpKind.TemplateUop)
+          entry.parent.identity.peId.poke(1.U)
+          entry.parent.identity.stid.poke(0.U)
+          entry.parent.identity.instructionId.poke(7.U)
+          entry.parent.identity.epoch.poke(2.U)
+          entry.parent.pc.poke(0x1000.U)
+          entry.parent.lengthBytes.poke(4.U)
+          entry.templateOrdinal.poke((firstOrdinal + lane).U)
+          entry.templateCount.poke(6.U)
+          entry.templateOpcode.poke(opcode.asUInt)
+          entry.templateRegister.poke((10 + lane).U)
+          entry.templateImmediate.poke((0x20 - (firstOrdinal + lane) * 8).U)
+        }
+        dut.io.fromCtu.valid.poke(true.B)
+        var cycles = 0
+        while (!dut.io.fromCtu.ready.peek().litToBoolean && cycles < 32) {
+          dut.clock.step()
+          cycles += 1
+        }
+        assert(cycles < 32)
+        dut.clock.step()
+        dut.io.fromCtu.valid.poke(false.B)
+      }
+
+      sendTemplate(
+        Seq(TemplateRowKind.VFORM, TemplateRowKind.SP_SUB),
+        firstOrdinal = 0)
+      sendTemplate(
+        Seq(TemplateRowKind.STORE, TemplateRowKind.STORE),
+        firstOrdinal = 2)
+
+      // The first prefix remains unpublished behind the ALU sink while the
+      // second D1 row is already retained. Its virtual ROB allocation must
+      // start after both groups reserved by the older RENU prefix.
+      dut.clock.step(2)
+      dut.io.iex.aluDispatch.head.valid.expect(true.B)
+      dut.io.iex.aluDispatch.head.ready.poke(true.B)
+
+      var cycles = 0
+      while (!dut.io.iex.storeDispatch.head.valid.peek().litToBoolean &&
+          cycles < 32) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 32, "second template chunk deadlocked on a stale ROB tail")
+      dut.io.iex.storeDispatch(0).bits.sta.uop.decoded.rob.ridSlot.expect(2.U)
+      dut.io.iex.storeDispatch(0).bits.sta.uop.decoded.rob.memberIndex.expect(0.U)
+      dut.io.iex.storeDispatch(1).bits.sta.uop.decoded.rob.ridSlot.expect(2.U)
+      dut.io.iex.storeDispatch(1).bits.sta.uop.decoded.rob.memberIndex.expect(1.U)
     }
   }
 }

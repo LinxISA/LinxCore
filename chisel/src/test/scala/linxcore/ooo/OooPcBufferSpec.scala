@@ -346,6 +346,25 @@ class OooPcBufferSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("held same-STID commit preview does not block an open block admission") {
+    simulate(new OooPcBuffer(ParamProfiles.W4)) { dut =>
+      clear(dut)
+      pokePrepare(dut, Seq((0, 0, 100L)))
+      selectPrefix(dut, expectedCount = 1, expectedGroupCount = 1)
+      publish(dut)
+
+      pokeCommit(dut, Seq((0, 0, 0, true)))
+      dut.io.commitReady.expect(true.B)
+      dut.io.commitApply.expect(false.B)
+
+      pokePrepare(dut, Seq((1, 0, 102L)))
+      selectPrefix(dut, expectedCount = 1, expectedGroupCount = 1)
+      dut.io.prepareReady.expect(true.B)
+      dut.io.prepared.lanes.head.pcBufferIndex.expect(0.U)
+      dut.io.prepared.lanes.head.pcOffset.expect(2.U)
+    }
+  }
+
   test("aborts without mutation then applies an exact suffix and reopens its survivor") {
     simulate(new OooPcBuffer(ParamProfiles.W4)) { dut =>
       clear(dut)

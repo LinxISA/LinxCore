@@ -18,9 +18,9 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
     robRecoveryScanGroupsPerCycle = 2,
     robNonFlushScanGroupsPerCycle = 2,
     pcBufferEntries = 8,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
@@ -32,6 +32,7 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
     dut.io.p1.bits.poke(0.U.asTypeOf(dut.io.p1.bits))
     dut.io.readDecisionValid.poke(false.B)
     dut.io.readGrant.poke(false.B)
+    dut.io.operandReadyBits.poke(0.U.asTypeOf(dut.io.operandReadyBits))
     dut.io.sourceDataValid.poke(0.U)
     dut.io.sourceData.foreach(_.poke(0.U))
     dut.io.pcDataValid.poke(false.B)
@@ -486,6 +487,47 @@ class OooIexP1I2LaneSpec extends AnyFunSuite with ChiselSim {
       cancel.valid.poke(false.B)
       dut.io.stageCancel(1).valid.poke(false.B)
       dut.io.empty.expect(true.B)
+    }
+  }
+
+  test("resamples-expired-speculative-p-source-from-the-physical-file") {
+    simulate(new OooIexP1I2Lane(core, p)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeRequest(dut, stid = 0, ridSlot = 5, pcRequired = false)
+      val source = dut.io.p1.bits.row.schedule.sources(0)
+      source.ready.poke(false.B)
+      source.specReady.poke(true.B)
+      pokeLoadToken(source.load, stid = 0, generation = 7)
+      dut.clock.step()
+      dut.io.p1.valid.poke(false.B)
+
+      dut.io.i1Occupied.expect(true.B)
+      dut.io.readAttempt.valid.expect(false.B)
+
+      val ptag = dut.io.operandReadyBits.ptag(17)
+      ptag.valid.poke(true.B)
+      ptag.ready.poke(true.B)
+      ptag.stid.poke(0.U)
+      ptag.generation.poke(3.U)
+      dut.io.readAttempt.valid.expect(true.B)
+      dut.io.readAttempt.bits.sourceMask.expect("b0011".U)
+
+      dut.io.readDecisionValid.poke(true.B)
+      dut.io.readGrant.poke(true.B)
+      dut.io.sourceDataValid.poke("b0011".U)
+      dut.io.sourceData(0).poke("h0123456789abcdef".U)
+      dut.io.sourceData(1).poke("h8877665544332211".U)
+      dut.clock.step()
+      dut.io.readDecisionValid.poke(false.B)
+      dut.io.readGrant.poke(false.B)
+
+      dut.io.i2.valid.expect(true.B)
+      dut.io.i2.bits.bypassMask.expect(0.U)
+      dut.io.i2.bits.sourceData(0).expect("h0123456789abcdef".U)
     }
   }
 

@@ -532,6 +532,25 @@ class OOORecoverySpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("ROB idle_matching_payload does not publish a recovery response") {
+    simulate(new ROB(params)) { dut =>
+      clearRob(dut)
+      lane(dut.io.prepare.bits, 0, id = 1, rid = 0, groupCount = 1, stid = 0)
+      val resident = publish(dut, 1).head
+
+      // The inactive Decoupled payload is intentionally all-zero and therefore
+      // matches the first resident identity. Ready may remain combinationally
+      // high, but a response is illegal until the request is valid.
+      dut.io.recoveryPrepare.valid.poke(false.B)
+      dut.io.recoveryPrepare.bits.poke(
+        0.U.asTypeOf(dut.io.recoveryPrepare.bits))
+      dut.io.recoveryPrepare.bits.phase.poke(RecoveryPhase.Prepare)
+      dut.io.recoveryPrepare.bits.trigger.poke(resident)
+      dut.io.recoveryPrepare.ready.expect(true.B)
+      dut.io.recoveryPrepared.valid.expect(false.B)
+    }
+  }
+
   test("ROB reuses the recovered tail as the next commit head after survivor retirement") {
     simulate(new ROB(params)) { dut =>
       clearRob(dut)

@@ -203,12 +203,15 @@ class LoadIexIssuePipeline(
   private def destinationExact(request: OooIexAguLoadRequest): Bool = {
     val destination = request.destination
     val previous = request.execute.i2.row.payload.previousPDestinations(0)
-    destination.valid && destination.kind === DestinationKind.Gpr &&
+    val pExact = destination.kind === DestinationKind.Gpr &&
       destination.ptag < p.pPhysRegs.U &&
       previous.valid && previous.ptag < p.pPhysRegs.U &&
-      previous.ptag =/= destination.ptag &&
-      destination.asUInt ===
-        request.execute.i2.row.destinations(0).asUInt
+      previous.ptag =/= destination.ptag
+    val tExact = destination.kind === DestinationKind.T &&
+      destination.localTag < p.tPhysRegs.U &&
+      destination.localSequence.valid && !previous.valid
+    destination.valid && (pExact || tExact) && destination.asUInt ===
+      request.execute.i2.row.destinations(0).asUInt
   }
 
   val exact = Wire(Vec(laneCount, Bool()))
@@ -320,8 +323,14 @@ class LoadIexIssuePipeline(
   alloc.dst.kind := request.destination.kind
   alloc.dst.archTag := request.destination.atag
   alloc.dst.relTag := request.destination.relativeIndex
-  alloc.dst.physTag := request.destination.ptag
-  alloc.dst.oldPhysTag := row.payload.previousPDestinations(0).ptag
+  alloc.dst.physTag := Mux(
+    request.destination.kind === DestinationKind.Gpr,
+    request.destination.ptag,
+    request.destination.localTag)
+  alloc.dst.oldPhysTag := Mux(
+    request.destination.kind === DestinationKind.Gpr,
+    row.payload.previousPDestinations(0).ptag,
+    0.U)
   alloc.sourceTraceValid := false.B
   alloc.source0 := 0.U.asTypeOf(alloc.source0)
   alloc.source1 := 0.U.asTypeOf(alloc.source1)

@@ -5,7 +5,7 @@ import chisel3.util.{Arbiter, Decoupled, DecoupledIO, Queue}
 import linxcore.dtu.{DTU, PerformanceCounterIndex}
 import linxcore.lsu.LSU
 import linxcore.ooo.OOO
-import linxcore.params.{CoreParams, ParamProfiles}
+import linxcore.params.{CoreParams, ParamProfiles, SimulationParamProfiles}
 import linxcore.top.interface.{D1Packet, LoadReplayRequestTxn, LoadResultTxn,
   MemoryIdentity, MemoryTransactionIdentity, RecoveryCause, TraceKind,
   TracePacket}
@@ -15,6 +15,42 @@ import linxcore.top.interface.{D1Packet, LoadReplayRequestTxn, LoadResultTxn,
   * storage is reduced to the already-proven Task-14 minimum geometry.
   */
 object OOOIEXLSUActivationParams {
+  private val w2Base = SimulationParamProfiles.W2
+  val W2: CoreParams = w2Base.copy(
+    ooo = w2Base.ooo.copy(
+      stidCount = 1,
+      robGroupsPerStid = 8,
+      maxInstructionsPerRobGroup = 1,
+      maxUopsPerInstruction = 12,
+      robBankCount = 2,
+      brobEntriesPerStid = 8,
+      pcBufferEntries = 4,
+      pcBankCount = 4,
+      pcRecoveryScanGroupsPerCycle = 4,
+      gprPhysRegs = 32,
+      gprMapQDepthPerStid = 4,
+      tPhysRegs = 4,
+      uPhysRegs = 4,
+      tuMapQDepthPerStid = 4),
+    iex = w2Base.iex.copy(scalarIssueEntries = 4),
+    lsu = w2Base.lsu.copy(
+      loadQueueEntries = 2,
+      storeQueueEntries = 4,
+      loadReturnQueueEntries = 2,
+      storeCommitQueueEntries = 2,
+      scbEntries = 4,
+      loadMissQueueEntries = 2,
+      loadRefillQueueEntries = 2,
+      resolveQueueEntries = 4,
+      mdbSsitEntries = 4,
+      mdbCommandQueueEntries = 4,
+      mdbOutputQueueEntries = 4,
+      mdbWaitPlanQueueEntries = 4,
+      mdbRecoveryQueueEntries = 4,
+      mdbFailedWaitTimeoutCycles = 8,
+      l1dSets = 2,
+      l1dWays = 2))
+
   private val main = ParamProfiles.W4
   val W4: CoreParams = main.copy(
     ooo = main.ooo.copy(
@@ -44,7 +80,7 @@ object OOOIEXLSUActivationParams {
     iex = main.iex.copy(scalarIssueEntries = 4),
     lsu = main.lsu.copy(
       loadQueueEntries = 2,
-      storeQueueEntries = 2,
+      storeQueueEntries = 4,
       loadReturnQueueEntries = 2,
       storeCommitQueueEntries = 2,
       scbEntries = 4,
@@ -159,6 +195,7 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
 
   private val ooo = Module(new OOO(p))
   private val iex = Module(new IEX(p))
+  iex.io.branchResolve.ready := true.B
   private val lsu = Module(new LSU(p))
   private val dtu = Module(new DTU(p))
 
@@ -188,8 +225,8 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
     queued(ooo.io.iex.cmdDispatch(lane), iex.io.ooo.cmdDispatch(lane))
   }
   iex.io.ooo.allocationClear := ooo.io.iex.allocationClear
-  queued(ooo.io.iex.fastWriteback, iex.io.ooo.fastWriteback)
-  queued(ooo.io.iex.fastWakeup, iex.io.ooo.fastWakeup)
+  queued(ooo.io.iex.fastResult, iex.io.ooo.fastResult)
+  ooo.io.iex.storeBinding <> iex.io.ooo.storeBinding
   ooo.io.iex.pcBufferReadAddress := iex.io.ooo.pcBufferReadAddress
   iex.io.ooo.pcBufferReadPcBase := ooo.io.iex.pcBufferReadPcBase
   ooo.io.iex.robNoflushReady <> iex.io.ooo.robNoflushReady
@@ -260,6 +297,7 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   dtu.io.commitIn.valid := ooo.io.commit.fire
   dtu.io.commitIn.bits := ooo.io.commit.bits
   dtu.io.traceIn <> iex.io.trace
+  dtu.io.traceOverflowDropped := 0.U
   dtu.io.traceOut.ready := io.iexTraceReady
   io.dtuTraceValid := dtu.io.traceOut.valid
   io.dtuTrace := dtu.io.traceOut.bits
@@ -284,10 +322,8 @@ class OOOIEXLSUActivationProbe(val p: CoreParams) extends Module {
   }
 
   iex.io.cmdIssue.ready := io.cmdReady
-  lsu.io.storeCommit.valid := false.B
-  lsu.io.storeCommit.bits := 0.U.asTypeOf(lsu.io.storeCommit.bits)
-  lsu.io.storeClassify.valid := false.B
-  lsu.io.storeClassify.bits := 0.U.asTypeOf(lsu.io.storeClassify.bits)
+  lsu.io.storeCommit <> ooo.io.storeCommit
+  ooo.io.storeResolve <> lsu.io.storeResolve
   lsu.io.memoryFault.ready := true.B
   lsu.io.maintenance.valid := false.B
   lsu.io.maintenance.bits := 0.U.asTypeOf(lsu.io.maintenance.bits)

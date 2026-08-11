@@ -183,7 +183,11 @@ index/generation state and separate physical-tag cursors. Prepare rejects the
 whole prefix if any relative source underflows the visible local history. D3
 rows carry the T and U sequence snapshots seen before each uop. Publication
 advances only the target STID local tails and counts. Recovery applies only to
-the target STID and leaves aborts non-mutating.
+the target STID and leaves aborts non-mutating. A renamed T/U source retains
+the producer allocation epoch together with its physical tag and MapQ
+sequence. IEX readiness, wakeup, bypass, and operand-file reads MUST qualify
+that source with the retained producer epoch, not with the consuming
+instruction's frontend epoch.
 
 ## Rename owner verification {#VER-OOO-002}
 <!-- ndf: kind=verif level=must layer=L3 status=stable since=0.1 verifies=OOO-006,OOO-007,OOO-008,OOO-009,PRM-RENAME-001,MEC-OOO-003,MEC-OOO-004,MEC-OOO-005 -->

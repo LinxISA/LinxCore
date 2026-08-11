@@ -291,7 +291,7 @@ final case class OooParams(
   def countWidth(maximum: Int): Int = math.max(1, log2Ceil(maximum + 1))
   def robCompletionInputWidth: Int = iexTerminalWidth + 1
   def robCompletionBufferCountWidth: Int = countWidth(robCompletionBufferEntries)
-  def maxCommitStoreTokens: Int = retireGroupWidth * decodedUopWidth *
+  def maxCommitStoreTokens: Int = retireGroupWidth *
     maxMemoryRequestsPerInstruction
   def storeCommitBufferCountWidth: Int = countWidth(storeCommitBufferEntries)
   def stidWidth: Int = math.max(1, log2Ceil(stidIdentityEntries))
@@ -441,16 +441,9 @@ final case class OooParams(
 }
 
 object OooParams {
-  private def nextPowerOfTwo(value: Int): Int =
-    if (value <= 1) 1
-    else 1 << (32 - Integer.numberOfLeadingZeros(value - 1))
-
   /** Temporary constructor bridge for OOO modules awaiting migration. */
   def fromMainline(p: linxcore.params.OOOParams): OooParams = {
     val decodedWidth = math.max(p.decodeWidth, p.renameWidth)
-    val commitBufferEntries = nextPowerOfTwo(
-      math.max(64, p.retireWidth * decodedWidth * 2))
-
     OooParams(
       stidCount = p.stidCount,
       stidIdentityEntries = p.stidIdentityEntries,
@@ -459,7 +452,7 @@ object OooParams {
       renameWidth = p.renameWidth,
       dispatchWidth = p.dispatchWidth,
       retireGroupWidth = p.retireWidth,
-      storeCommitBufferEntries = commitBufferEntries,
+      storeCommitBufferEntries = p.storeCommitBufferEntries,
       maxInstPerRobGroup = p.maxInstructionsPerRobGroup,
       robIdentityMembersPerGroup = p.robIdentityMembersPerGroup,
       maxRecipeUops = p.maxUopsPerInstruction,

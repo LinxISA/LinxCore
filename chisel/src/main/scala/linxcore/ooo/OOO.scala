@@ -209,46 +209,42 @@ class OOO(val p: CoreParams) extends Module {
   val d3s1 = Module(new OOOD3S1Graph(p))
 
   d1d2.io.fromCtu <> io.fromCtu
-  d1d2.io.ridTailSlot := d3s1.io.ridTailSlot
-  d1d2.io.ridTailGeneration := d3s1.io.ridTailGeneration
+  d1d2.io.ridTailSlot := d3s1.io.ridAdmissionTailSlot
+  d1d2.io.ridTailGeneration := d3s1.io.ridAdmissionTailGeneration
   d3s1.io.fromD2 <> d1d2.io.d2
   d1d2.io.recovery <> d3s1.io.recoveryToD1
-  private def retainedBoundary[T <: Data](source: DecoupledIO[T],
-      sink: DecoupledIO[T]): Unit = {
-    val boundary = Module(new Queue(chiselTypeOf(source.bits), 1,
-      pipe = false, flow = false))
-    boundary.io.enq <> source
-    sink <> boundary.io.deq
-  }
   for (lane <- io.iex.aluDispatch.indices) {
-    retainedBoundary(d3s1.io.iex.aluDispatch(lane), io.iex.aluDispatch(lane))
+    io.iex.aluDispatch(lane) <> d3s1.io.iex.aluDispatch(lane)
   }
   for (lane <- io.iex.bruDispatch.indices) {
-    retainedBoundary(d3s1.io.iex.bruDispatch(lane), io.iex.bruDispatch(lane))
+    io.iex.bruDispatch(lane) <> d3s1.io.iex.bruDispatch(lane)
   }
   for (lane <- io.iex.aguDispatch.indices) {
-    retainedBoundary(d3s1.io.iex.aguDispatch(lane), io.iex.aguDispatch(lane))
+    io.iex.aguDispatch(lane) <> d3s1.io.iex.aguDispatch(lane)
   }
   for (lane <- io.iex.storeDispatch.indices) {
-    retainedBoundary(d3s1.io.iex.storeDispatch(lane),
-      io.iex.storeDispatch(lane))
+    io.iex.storeDispatch(lane) <> d3s1.io.iex.storeDispatch(lane)
   }
   for (lane <- io.iex.systemDispatch.indices) {
-    retainedBoundary(d3s1.io.iex.systemDispatch(lane),
-      io.iex.systemDispatch(lane))
+    io.iex.systemDispatch(lane) <> d3s1.io.iex.systemDispatch(lane)
   }
   for (lane <- io.iex.cmdDispatch.indices) {
-    retainedBoundary(d3s1.io.iex.cmdDispatch(lane), io.iex.cmdDispatch(lane))
+    io.iex.cmdDispatch(lane) <> d3s1.io.iex.cmdDispatch(lane)
   }
   io.iex.allocationClear := d3s1.io.iex.allocationClear
-  retainedBoundary(d3s1.io.iex.fastWriteback, io.iex.fastWriteback)
-  retainedBoundary(d3s1.io.iex.fastWakeup, io.iex.fastWakeup)
+  io.iex.fastResult <> d3s1.io.iex.fastResult
   d3s1.io.iex.pcBufferReadAddress := io.iex.pcBufferReadAddress
   io.iex.pcBufferReadPcBase := d3s1.io.iex.pcBufferReadPcBase
   d3s1.io.iex.robNoflushReady <> io.iex.robNoflushReady
-  retainedBoundary(d3s1.io.iex.robNoflush, io.iex.robNoflush)
+  io.iex.robNoflush <> d3s1.io.iex.robNoflush
   for (lane <- io.iex.robResolve.indices) {
     d3s1.io.iex.robResolve(lane) <> io.iex.robResolve(lane)
+  }
+  d3s1.io.storeResolve <> io.storeResolve
+  for (lane <- io.iex.storeBinding.indices) {
+    d3s1.io.iex.storeBinding(lane).valid := io.iex.storeBinding(lane).valid
+    d3s1.io.iex.storeBinding(lane).bits := io.iex.storeBinding(lane).bits
+    io.iex.storeBinding(lane).ready := d3s1.io.iex.storeBinding(lane).ready
   }
   for (lane <- io.iex.systemIssue.indices) {
     d3s1.io.iex.systemIssue(lane) <> io.iex.systemIssue(lane)
@@ -256,6 +252,7 @@ class OOO(val p: CoreParams) extends Module {
   d3s1.io.iex.recoveryEvent <> io.iex.recoveryEvent
   d3s1.io.iex.recovery <> io.iex.recovery
   io.commit <> d3s1.io.commit
+  io.storeCommit <> d3s1.io.storeCommit
   io.trap <> d3s1.io.trap
   d3s1.io.interrupt <> io.interrupt
   d3s1.io.debugRequest <> io.debugRequest

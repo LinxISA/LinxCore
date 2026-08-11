@@ -3,14 +3,15 @@ package linxcore.iex
 import chisel3._
 import chisel3.util.{DecoupledIO, Fill, Mux1H, MuxLookup, PriorityEncoderOH,
   Queue, RRArbiter, UIntToOH, is, switch}
-import linxcore.common.{DestinationKind, OperandClass}
+import linxcore.common.{BoundaryKind, DestinationKind, OperandClass}
+import linxcore.frontend.OooIfuBranchFeedbackBridge
 import linxcore.lsu.{LoadAttemptIdentity, LoadCanonicalRowIdentity}
 import linxcore.ooo.{OooIexExecuteTransaction, OooIexExecutionPipeline,
   OooIexIssuePolicy, OooIexWakeupKind, OooMemoryAddressMode,
   OooMemoryIndexMode}
 import linxcore.params.CoreParams
 import linxcore.top.interface.{IEXIO, LoadReissueTxn, OperandKind,
-  RecoveryEvent, TraceKind, TraceSource}
+  BranchValidationKind, RecoveryEvent, TraceKind, TraceSource}
 
 /** Public state-free composition boundary for the canonical issue/execute graph.
   *
@@ -155,34 +156,37 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
     target.memberIndex := source.memberIndex
     target.residentGeneration := source.residentGeneration
   }
-  implementation.io.fastWriteback.valid := io.ooo.fastWriteback.valid
-  io.ooo.fastWriteback.ready := implementation.io.fastWriteback.ready
+  implementation.io.fastWriteback.valid := io.ooo.fastResult.valid
   implementation.io.fastWriteback.bits :=
     0.U.asTypeOf(implementation.io.fastWriteback.bits)
   projectMember(implementation.io.fastWriteback.bits.member,
-    io.ooo.fastWriteback.bits.rob)
+    io.ooo.fastResult.bits.writeback.rob)
   implementation.io.fastWriteback.bits.stid :=
-    io.ooo.fastWriteback.bits.rob.stid
+    io.ooo.fastResult.bits.writeback.rob.stid
   implementation.io.fastWriteback.bits.epoch :=
-    io.ooo.fastWriteback.bits.epoch
+    io.ooo.fastResult.bits.writeback.epoch
   implementation.io.fastWriteback.bits.ptag :=
-    io.ooo.fastWriteback.bits.destination.ptag
+    io.ooo.fastResult.bits.writeback.destination.ptag
   implementation.io.fastWriteback.bits.ptagGeneration :=
-    io.ooo.fastWriteback.bits.destination.pGeneration
-  implementation.io.fastWriteback.bits.data := io.ooo.fastWriteback.bits.value
+    io.ooo.fastResult.bits.writeback.destination.pGeneration
+  implementation.io.fastWriteback.bits.data :=
+    io.ooo.fastResult.bits.writeback.value
 
-  implementation.io.fastWakeup.valid := io.ooo.fastWakeup.valid
-  io.ooo.fastWakeup.ready := implementation.io.fastWakeup.ready
+  implementation.io.fastWakeup.valid := io.ooo.fastResult.valid
   implementation.io.fastWakeup.bits :=
     0.U.asTypeOf(implementation.io.fastWakeup.bits)
   implementation.io.fastWakeup.bits.kind := OooIexWakeupKind.Committed
-  implementation.io.fastWakeup.bits.stid := io.ooo.fastWakeup.bits.rob.stid
-  implementation.io.fastWakeup.bits.epoch := io.ooo.fastWakeup.bits.epoch
+  implementation.io.fastWakeup.bits.stid :=
+    io.ooo.fastResult.bits.writeback.rob.stid
+  implementation.io.fastWakeup.bits.epoch :=
+    io.ooo.fastResult.bits.writeback.epoch
   implementation.io.fastWakeup.bits.operandClass := OperandClass.P
   implementation.io.fastWakeup.bits.ptag :=
-    io.ooo.fastWakeup.bits.destination.ptag
+    io.ooo.fastResult.bits.writeback.destination.ptag
   implementation.io.fastWakeup.bits.ptagGeneration :=
-    io.ooo.fastWakeup.bits.destination.pGeneration
+    io.ooo.fastResult.bits.writeback.destination.pGeneration
+  io.ooo.fastResult.ready := implementation.io.fastWriteback.ready &&
+    implementation.io.fastWakeup.ready
   implementation.io.stageCancels.foreach(_.foreach { cancel =>
     cancel.valid := false.B
     cancel.bits := 0.U.asTypeOf(cancel.bits)
@@ -222,13 +226,90 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
     implementation.io.systemCmdResolve.ready := false.B
   }
 
+  private val bctrlArbiter = Module(new RRArbiter(
+    chiselTypeOf(implementation.io.bctrl.head.bits),
+    implementation.io.bctrl.length))
+  private val bctrlTransport = Seq.fill(implementation.io.bctrl.length)(
+    Module(new Queue(chiselTypeOf(implementation.io.bctrl.head.bits), 1,
+      pipe = false, flow = false)))
+  for (lane <- implementation.io.bctrl.indices) {
+    bctrlTransport(lane).io.enq <> implementation.io.bctrl(lane)
+    bctrlArbiter.io.in(lane) <> bctrlTransport(lane).io.deq
+  }
+  private val branchFeedback = Module(new OooIfuBranchFeedbackBridge(p))
+  private val bctrl = bctrlArbiter.io.out.bits
+  private val prediction = bctrl.prediction
+  private val conditionUpdate =
+    bctrl.update.kind === linxcore.ooo.OooIexBctrlUpdateKind.Condition
+  private val targetKind = Mux(
+    prediction.kind === BoundaryKind.Ind ||
+      prediction.kind === BoundaryKind.ICall ||
+      prediction.kind === BoundaryKind.Ret,
+    prediction.kind,
+    BoundaryKind.Ind)
+  branchFeedback.io.validation.valid := bctrlArbiter.io.out.valid
+  bctrlArbiter.io.out.ready := branchFeedback.io.validation.ready
+  branchFeedback.io.validation.bits :=
+    0.U.asTypeOf(branchFeedback.io.validation.bits)
+  branchFeedback.io.validation.bits.executionTransactionId :=
+    bctrl.transactionId
+  branchFeedback.io.validation.bits.rob.peId := bctrl.member.group.peId
+  branchFeedback.io.validation.bits.rob.stid := bctrl.member.group.stid
+  branchFeedback.io.validation.bits.rob.ridSlot := bctrl.member.group.ridSlot
+  branchFeedback.io.validation.bits.rob.ridGeneration :=
+    bctrl.member.group.ridGeneration
+  branchFeedback.io.validation.bits.rob.memberIndex :=
+    bctrl.member.memberIndex
+  branchFeedback.io.validation.bits.rob.residentGeneration :=
+    bctrl.member.residentGeneration
+  branchFeedback.io.validation.bits.rob.bid := bctrl.member.bid.value
+  branchFeedback.io.validation.bits.rob.brobGeneration :=
+    bctrl.member.brobGeneration
+  branchFeedback.io.validation.bits.instruction.peId :=
+    bctrl.uopKey.primaryParent.peId
+  branchFeedback.io.validation.bits.instruction.stid :=
+    bctrl.uopKey.primaryParent.stid
+  branchFeedback.io.validation.bits.instruction.instructionId :=
+    bctrl.uopKey.primaryParent.instructionId
+  branchFeedback.io.validation.bits.instruction.epoch :=
+    bctrl.uopKey.primaryParent.epoch
+  branchFeedback.io.validation.bits.kind := Mux(
+    conditionUpdate, BranchValidationKind.Condition,
+    BranchValidationKind.Target)
+  branchFeedback.io.validation.bits.predictionValid := prediction.valid
+  branchFeedback.io.validation.bits.predictionTag := prediction.predictionTag
+  branchFeedback.io.validation.bits.predictionTransactionId :=
+    prediction.transactionId
+  branchFeedback.io.validation.bits.fetchPacketUid := prediction.fetchPacketUid
+  branchFeedback.io.validation.bits.fetchSeq := prediction.fetchSeq
+  branchFeedback.io.validation.bits.predictionEpoch := prediction.epoch
+  branchFeedback.io.validation.bits.checkpointId := prediction.checkpointId
+  branchFeedback.io.validation.bits.requestPc := prediction.requestPc
+  branchFeedback.io.validation.bits.predictedTaken := prediction.taken
+  branchFeedback.io.validation.bits.predictedBranchPc := prediction.branchPc
+  branchFeedback.io.validation.bits.predictedTarget := prediction.target
+  branchFeedback.io.validation.bits.predictedFallthroughPc :=
+    prediction.fallthroughPc
+  branchFeedback.io.validation.bits.predictedKind := prediction.kind
+  branchFeedback.io.validation.bits.actualTaken := Mux(
+    conditionUpdate, bctrl.update.condition, bctrl.update.targetValid)
+  branchFeedback.io.validation.bits.actualBranchPc := prediction.branchPc
+  branchFeedback.io.validation.bits.actualTarget := Mux(
+    conditionUpdate, prediction.target, bctrl.update.target)
+  branchFeedback.io.validation.bits.actualFallthroughPc :=
+    prediction.fallthroughPc
+  branchFeedback.io.validation.bits.actualKind := Mux(
+    conditionUpdate, BoundaryKind.Cond, targetKind)
+  io.branchResolve <> branchFeedback.io.resolve
+
   private val recoveryArbiter = Module(new RRArbiter(
-    new RecoveryEvent(p), implementation.io.recoveryEvent.length))
+    new RecoveryEvent(p), implementation.io.recoveryEvent.length + 1))
   for (lane <- implementation.io.recoveryEvent.indices) {
     recoveryArbiter.io.in(lane) <> implementation.io.recoveryEvent(lane)
   }
+  recoveryArbiter.io.in(implementation.io.recoveryEvent.length) <>
+    branchFeedback.io.recovery
   io.ooo.recoveryEvent <> recoveryArbiter.io.out
-  implementation.io.bctrl.foreach(_.ready := false.B)
 
   io.cmdIssue <> implementation.io.cmdIssue
   private val terminalTraceSources =
@@ -337,47 +418,68 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
 
   // Reservation is the same acceptance dependency used by the retained IQ
   // owner; it cannot fire separately from the logical STA/STD pair.
-  io.lsu.storeReservation.foreach { out =>
-    out.valid := false.B
-    out.bits := 0.U.asTypeOf(out.bits)
+  private val reservations = implementation.io.storeReserve.get
+  for (lane <- reservations.indices) {
+    val reservation = reservations(lane)
+    val publicReservation = io.lsu.storeReservation(lane)
+    val binding = io.ooo.storeBinding(lane)
+    publicReservation.valid := reservation.valid && binding.ready
+    binding.valid := reservation.valid && publicReservation.ready
+    reservation.ready := publicReservation.ready && binding.ready
+    publicReservation.bits := 0.U.asTypeOf(publicReservation.bits)
+    publicReservation.bits.transactionId := reservation.bits.transactionId
+    publicReservation.bits.transaction.value :=
+      reservation.bits.memoryTransaction.value
+    publicReservation.bits.transaction.generation :=
+      reservation.bits.memoryTransaction.generation
+    publicReservation.bits.rob.peId := reservation.bits.member.group.peId
+    publicReservation.bits.rob.stid := reservation.bits.member.group.stid
+    publicReservation.bits.rob.ridSlot := reservation.bits.member.group.ridSlot
+    publicReservation.bits.rob.ridGeneration :=
+      reservation.bits.member.group.ridGeneration
+    publicReservation.bits.rob.memberIndex :=
+      reservation.bits.member.memberIndex
+    publicReservation.bits.rob.residentGeneration :=
+      reservation.bits.member.residentGeneration
+    publicReservation.bits.rob.bid := reservation.bits.member.bid.value
+    publicReservation.bits.rob.brobGeneration :=
+      reservation.bits.member.brobGeneration
+    publicReservation.bits.memoryOrder.requestCount :=
+      reservation.bits.memoryOrder.requestCount
+    publicReservation.bits.memoryOrder.firstLsid :=
+      reservation.bits.memoryOrder.firstLsid
+    publicReservation.bits.memoryOrder.firstLid :=
+      reservation.bits.memoryOrder.before.loadId
+    publicReservation.bits.memoryOrder.firstSid :=
+      reservation.bits.memoryOrder.before.storeId
+    publicReservation.bits.memoryOrder.yostValid :=
+      reservation.bits.memoryOrder.before.youngestStoreLsidValid
+    publicReservation.bits.memoryOrder.yostLsid :=
+      reservation.bits.memoryOrder.before.youngestStoreLsid
+    publicReservation.bits.memoryOrder.yostSid :=
+      reservation.bits.memoryOrder.yostSid
+    publicReservation.bits.memoryOrder.yoldValid :=
+      reservation.bits.memoryOrder.yoldValid
+    publicReservation.bits.memoryOrder.yoldLsid :=
+      reservation.bits.memoryOrder.yoldLsid
+    publicReservation.bits.memoryOrder.yoldLid :=
+      reservation.bits.memoryOrder.yoldLid
+    publicReservation.bits.requestCount :=
+      reservation.bits.memoryOrder.requestCount
+    publicReservation.bits.pair :=
+      reservation.bits.memoryOrder.requestCount === 2.U
+    publicReservation.bits.sizeBytes := reservation.bits.memory.accessBytes
+    publicReservation.bits.aguPipe := lane.U
+    publicReservation.bits.stdPipe := lane.U
+    binding.bits.rob := publicReservation.bits.rob
+    binding.bits.transaction := publicReservation.bits.transaction
+    binding.bits.memoryOrder := publicReservation.bits.memoryOrder
+    when(reservation.valid) {
+      assert(reservation.fire === publicReservation.fire &&
+        reservation.fire === binding.fire,
+        "store reservation and exact ROB transaction binding require one fire")
+    }
   }
-  private val reservation = implementation.io.storeReserve.get
-  private val publicReservation = io.lsu.storeReservation.head
-  publicReservation.valid := reservation.valid
-  reservation.ready := publicReservation.ready
-  publicReservation.bits.transactionId := reservation.bits.transactionId
-  publicReservation.bits.rob.peId := reservation.bits.member.group.peId
-  publicReservation.bits.rob.stid := reservation.bits.member.group.stid
-  publicReservation.bits.rob.ridSlot := reservation.bits.member.group.ridSlot
-  publicReservation.bits.rob.ridGeneration :=
-    reservation.bits.member.group.ridGeneration
-  publicReservation.bits.rob.memberIndex := reservation.bits.member.memberIndex
-  publicReservation.bits.rob.residentGeneration :=
-    reservation.bits.member.residentGeneration
-  publicReservation.bits.rob.bid := reservation.bits.member.bid.value
-  publicReservation.bits.rob.brobGeneration :=
-    reservation.bits.member.brobGeneration
-  publicReservation.bits.memoryOrder := 0.U.asTypeOf(
-    publicReservation.bits.memoryOrder)
-  publicReservation.bits.memoryOrder.requestCount :=
-    reservation.bits.memoryOrder.requestCount
-  publicReservation.bits.memoryOrder.firstLsid :=
-    reservation.bits.memoryOrder.firstLsid
-  publicReservation.bits.memoryOrder.firstSid :=
-    reservation.bits.memoryOrder.firstTypeId
-  publicReservation.bits.memoryOrder.yostValid :=
-    reservation.bits.memoryOrder.before.youngestStoreLsidValid
-  publicReservation.bits.memoryOrder.yostLsid :=
-    reservation.bits.memoryOrder.before.youngestStoreLsid
-  publicReservation.bits.memoryOrder.yostSid :=
-    reservation.bits.memoryOrder.before.storeId - 1.U
-  publicReservation.bits.requestCount :=
-    reservation.bits.memoryOrder.requestCount
-  publicReservation.bits.pair :=
-    reservation.bits.memoryOrder.requestCount === 2.U
-  publicReservation.bits.sizeBytes := reservation.bits.memory.accessBytes
-  publicReservation.bits.aguPipe := 0.U
-  publicReservation.bits.stdPipe := 0.U
 
   private def projectRob(target: linxcore.top.interface.RobIdentity,
       execute: OooIexExecuteTransaction): Unit = {
@@ -488,12 +590,32 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
   publicLoadBits.sizeBytes := privateLoad.bits.size
   publicLoadBits.signed := privateLoad.bits.returnSignExtend
   publicLoadBits.destination.valid := privateLoad.bits.dst.valid
-  publicLoadBits.destination.kind := OperandKind.Gpr
+  publicLoadBits.destination.kind := Mux(
+    privateLoad.bits.dst.kind === DestinationKind.Gpr,
+    OperandKind.Gpr,
+    Mux(privateLoad.bits.dst.kind === DestinationKind.T,
+      OperandKind.T, OperandKind.U))
   publicLoadBits.destination.atag := privateLoad.bits.dst.archTag
-  publicLoadBits.destination.ptag := privateLoad.bits.dst.physTag
-  publicLoadBits.destination.previousPtag := privateLoad.bits.dst.oldPhysTag
-  publicLoadBits.destination.previousPtagValid := privateLoad.bits.dst.valid
-  publicLoadBits.destination.ptagValid := privateLoad.bits.dst.valid
+  publicLoadBits.destination.ptag := Mux(
+    privateLoad.bits.dst.kind === DestinationKind.Gpr,
+    privateLoad.bits.dst.physTag, 0.U)
+  publicLoadBits.destination.previousPtag := Mux(
+    privateLoad.bits.dst.kind === DestinationKind.Gpr,
+    privateLoad.bits.dst.oldPhysTag, 0.U)
+  publicLoadBits.destination.previousPtagValid := privateLoad.bits.dst.valid &&
+    privateLoad.bits.dst.kind === DestinationKind.Gpr
+  publicLoadBits.destination.ptagValid := privateLoad.bits.dst.valid &&
+    privateLoad.bits.dst.kind === DestinationKind.Gpr
+  publicLoadBits.destination.ttag := Mux(
+    privateLoad.bits.dst.kind === DestinationKind.T,
+    privateLoad.bits.dst.physTag, 0.U)
+  publicLoadBits.destination.ttagValid := privateLoad.bits.dst.valid &&
+    privateLoad.bits.dst.kind === DestinationKind.T
+  publicLoadBits.destination.utag := Mux(
+    privateLoad.bits.dst.kind === DestinationKind.U,
+    privateLoad.bits.dst.physTag, 0.U)
+  publicLoadBits.destination.utagValid := privateLoad.bits.dst.valid &&
+    privateLoad.bits.dst.kind === DestinationKind.U
   publicLoadBits.destinationRelativeIndex := privateLoad.bits.dst.relTag
   publicLoadBits.youngestStoreValid :=
     privateLoad.bits.youngestStoreLsIdFullValid
@@ -648,15 +770,24 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
     returned.identity.pipeId
   implementation.io.load.completion.bits.payload.dst.valid :=
     returned.destination.valid
-  implementation.io.load.completion.bits.payload.dst.kind := DestinationKind.Gpr
+  implementation.io.load.completion.bits.payload.dst.kind := Mux(
+    returned.destination.kind === OperandKind.Gpr,
+    DestinationKind.Gpr,
+    Mux(returned.destination.kind === OperandKind.T,
+      DestinationKind.T, DestinationKind.U))
   implementation.io.load.completion.bits.payload.dst.archTag :=
     returned.destination.atag
   implementation.io.load.completion.bits.payload.dst.relTag :=
     returned.destinationRelativeIndex
-  implementation.io.load.completion.bits.payload.dst.physTag :=
-    returned.destination.ptag
-  implementation.io.load.completion.bits.payload.dst.oldPhysTag :=
-    returned.destination.previousPtag
+  implementation.io.load.completion.bits.payload.dst.physTag := Mux(
+    returned.destination.kind === OperandKind.Gpr,
+    returned.destination.ptag,
+    Mux(returned.destination.kind === OperandKind.T,
+      returned.destination.ttag, returned.destination.utag))
+  implementation.io.load.completion.bits.payload.dst.oldPhysTag := Mux(
+    returned.destination.kind === OperandKind.Gpr,
+    returned.destination.previousPtag,
+    0.U)
   implementation.io.load.completion.bits.payload.data := returned.data
   implementation.io.load.completion.bits.payload.faultValid := returned.trap.valid
   implementation.io.load.completion.bits.payload.faultCause := returned.trap.cause
@@ -702,6 +833,8 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
     repickTransition.bits.allocationId := repick.bits.allocationId
     repickTransition.bits.currentIdentity := repick.bits.currentIdentity
     repickTransition.bits.nextIdentity := repick.bits.nextIdentity
+    repickTransition.bits.structural := repick.bits.structural
+    repickTransition.bits.waitStore := repick.bits.waitStore
     repick.ready := repickTransition.ready
   }
   val publicReissue = reissueArbiter.io.out
@@ -750,7 +883,6 @@ private final class OooIexBoundaryOwner(val p: CoreParams) extends Module {
   implementation.io.multiCycleAlu.foreach(_.ready := false.B)
   implementation.io.pointerAuth.foreach(_.ready := false.B)
   implementation.io.floatingVector.ready := false.B
-  implementation.io.bctrl.foreach(_.ready := false.B)
 }
 
 /** Stable public IEX box. All retained state and arbitration live below this

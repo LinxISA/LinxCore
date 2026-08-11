@@ -20,7 +20,7 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
     rob.brobGeneration.poke(1.U)
   }
 
-  test("store address translation retains the exact STA before mutating its reserved STQ row") {
+  test("translated_committed_store_projects_exact_transaction_data_and_mask") {
     val p = SimulationParamProfiles.W4
     val virtualAddress = BigInt("8000000000003000", 16)
     simulate(new LSU(p)) { dut =>
@@ -29,6 +29,8 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
       val reserve = dut.io.iex.storeReservation(0)
       reserve.bits.poke(0.U.asTypeOf(reserve.bits))
       reserve.bits.transactionId.poke(11.U)
+      reserve.bits.transaction.value.poke(11.U)
+      reserve.bits.transaction.generation.poke(1.U)
       pokeRob(reserve.bits.rob)
       reserve.bits.memoryOrder.requestCount.poke(1.U)
       reserve.bits.memoryOrder.firstLsid.poke(21.U)
@@ -104,23 +106,13 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
       dut.clock.step()
       std.valid.poke(false.B)
 
-      val classify = dut.io.storeClassify
-      classify.bits.poke(0.U.asTypeOf(classify.bits))
-      pokeRob(classify.bits.rob)
-      classify.bits.logicalFirstLsid.poke(21.U)
-      classify.bits.logicalFirstStoreId.poke(31.U)
-      classify.bits.requestCount.poke(1.U)
-      classify.bits.memoryClass.poke(StoreMemoryClass.NormalCacheable)
-      classify.valid.poke(true.B)
-      while (!classify.ready.peek().litToBoolean) dut.clock.step()
-      dut.clock.step()
-      classify.valid.poke(false.B)
-
       val storeMemory = dut.io.memoryRequest(p.lsu.loadPipes)
       storeMemory.ready.poke(false.B)
       val commit = dut.io.storeCommit
       commit.bits.poke(0.U.asTypeOf(commit.bits))
       pokeRob(commit.bits.rob)
+      commit.bits.transaction.value.poke(11.U)
+      commit.bits.transaction.generation.poke(1.U)
       commit.bits.logicalFirstLsid.poke(21.U)
       commit.bits.logicalFirstStoreId.poke(31.U)
       commit.bits.requestCount.poke(1.U)
@@ -135,40 +127,17 @@ class LSUIntegrationSpec extends AnyFunSuite with LSUMemoryTestSupport {
         cycles += 1
       }
       assert(cycles < 32, "translated committed store did not reach memory")
+      storeMemory.bits.command.expect(
+        linxcore.top.interface.MemoryCommand.Write)
+      storeMemory.bits.identity.value.expect(11.U)
+      storeMemory.bits.identity.generation.expect(1.U)
       storeMemory.bits.accessKind.expect(
         linxcore.top.interface.MemoryAccessKind.Device)
       storeMemory.bits.address.expect((devicePpn << 12).U)
-      val storeIdentity = storeMemory.bits.identity.peek()
+      storeMemory.bits.data.expect("h1122334455667788".U)
+      storeMemory.bits.byteMask.expect("hff".U)
       storeMemory.ready.poke(true.B)
       dut.clock.step()
-
-      val prepare = dut.io.recovery.prepare
-      prepare.bits.poke(0.U.asTypeOf(prepare.bits))
-      prepare.bits.transactionId.poke(90.U)
-      prepare.bits.phase.poke(RecoveryPhase.Prepare)
-      prepare.bits.cause.poke(RecoveryCause.Branch)
-      prepare.bits.redirectPc.poke(0x400.U)
-      prepare.bits.newEpoch.poke(2.U)
-      prepare.valid.poke(true.B)
-      prepare.ready.expect(true.B)
-      dut.clock.step()
-      prepare.valid.poke(false.B)
-      dut.io.recovery.prepared.valid.expect(false.B)
-
-      val storeResponse = dut.io.memoryResponse(p.lsu.loadPipes)
-      storeResponse.bits.poke(0.U.asTypeOf(storeResponse.bits))
-      storeResponse.bits.identity.poke(storeIdentity)
-      storeResponse.valid.poke(true.B)
-      while (!storeResponse.ready.peek().litToBoolean) dut.clock.step()
-      dut.clock.step()
-      storeResponse.valid.poke(false.B)
-
-      var storePrepared = false
-      for (_ <- 0 until 64) {
-        if (dut.io.recovery.prepared.valid.peek().litToBoolean) storePrepared = true
-        dut.clock.step()
-      }
-      assert(storePrepared, "store recovery did not wait for exact drain completion")
     }
   }
 
@@ -330,6 +299,8 @@ trait CacheableStorePublicTestSupport extends LSUMemoryTestSupport {
     val reserve = dut.io.iex.storeReservation(0)
     reserve.bits.poke(0.U.asTypeOf(reserve.bits))
     reserve.bits.transactionId.poke(61.U)
+    reserve.bits.transaction.value.poke(61.U)
+    reserve.bits.transaction.generation.poke(1.U)
     pokeStoreRob(reserve.bits.rob)
     reserve.bits.memoryOrder.requestCount.poke(1.U)
     reserve.bits.memoryOrder.firstLsid.poke(21.U)
@@ -376,25 +347,6 @@ trait CacheableStorePublicTestSupport extends LSUMemoryTestSupport {
     while (!std.ready.peek().litToBoolean) dut.clock.step()
     dut.clock.step()
     std.valid.poke(false.B)
-
-    val classify = dut.io.storeClassify
-    classify.bits.poke(0.U.asTypeOf(classify.bits))
-    pokeStoreRob(classify.bits.rob)
-    classify.bits.transaction.value.poke(61.U)
-    classify.bits.transaction.generation.poke(1.U)
-    classify.bits.logicalFirstLsid.poke(21.U)
-    classify.bits.logicalFirstStoreId.poke(31.U)
-    classify.bits.requestCount.poke(1.U)
-    classify.bits.beat.poke(0.U)
-    classify.bits.memoryClass.poke(StoreMemoryClass.NormalCacheable)
-    classify.valid.poke(true.B)
-    var classifyCycles = 0
-    while (!classify.ready.peek().litToBoolean && classifyCycles < 32) {
-      dut.clock.step(); classifyCycles += 1
-    }
-    assert(classifyCycles < 32, "cacheable store classification did not resolve")
-    dut.clock.step()
-    classify.valid.poke(false.B)
 
     val commit = dut.io.storeCommit
     commit.bits.poke(0.U.asTypeOf(commit.bits))

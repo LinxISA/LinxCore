@@ -35,6 +35,7 @@ class LoadLaunchTxn(val p: CoreParams) extends Bundle {
   */
 class StoreReservationTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
+  val transaction = new MemoryTransactionIdentity(p)
   val rob = new RobIdentity(p)
   val memoryOrder = new MemoryOrderMeta(p)
   val requestCount = UInt(
@@ -43,6 +44,15 @@ class StoreReservationTxn(val p: CoreParams) extends Bundle {
   val sizeBytes = UInt(4.W)
   val aguPipe = UInt(InterfaceWidth.index(p.iex.aguPipes).W)
   val stdPipe = UInt(InterfaceWidth.index(p.iex.stdPipes).W)
+}
+
+/** IEX-authored initial store transaction bound back into the exact resident
+  * ROB entry. This preserves Option-A transaction generation through commit.
+  */
+class StoreTransactionBindingTxn(val p: CoreParams) extends Bundle {
+  val rob = new RobIdentity(p)
+  val transaction = new MemoryTransactionIdentity(p)
+  val memoryOrder = new MemoryOrderMeta(p)
 }
 
 /** Exact semantic store-beat authorization; no physical STQ index is exposed. */
@@ -77,12 +87,31 @@ class StoreMemoryClassifyTxn(val p: CoreParams) extends Bundle {
   val faultCause = UInt(p.trapCauseWidth.W)
 }
 
+/** Exact store dependency retained while LSU requests a structural load
+  * replay.  This remains a semantic wait key: no physical LIQ row is exposed.
+  */
+class LoadStructuralWaitStoreTxn(val p: CoreParams) extends Bundle {
+  val valid = Bool()
+  val storeIndex = UInt(InterfaceWidth.index(p.lsu.storeQueueEntries).W)
+  val storeIdValid = Bool()
+  val storeIdValue = UInt(p.ooo.ridSlotWidth.W)
+  val storeIdWrap = Bool()
+  val storeLsidValid = Bool()
+  val storeLsidValue = UInt(p.ooo.ridSlotWidth.W)
+  val storeLsidWrap = Bool()
+  val storeLsidFullValid = Bool()
+  val storeLsidFull = UInt(p.lsidWidth.W)
+  val pc = UInt(p.pcWidth.W)
+}
+
 /** LIQ attempt transition which returns to address translation. */
 class LoadReissueTxn(val p: CoreParams) extends Bundle {
   val allocationId = new MemoryTransactionIdentity(p)
   val currentIdentity = new MemoryIdentity(p)
   val nextIdentity = new MemoryIdentity(p)
   val address = UInt(p.physicalAddressWidth.W)
+  val structural = Bool()
+  val waitStore = new LoadStructuralWaitStoreTxn(p)
 }
 
 /** External request to replay the currently owned attempt. The requester may
@@ -99,6 +128,8 @@ class LoadRepickTxn(val p: CoreParams) extends Bundle {
   val allocationId = new MemoryTransactionIdentity(p)
   val currentIdentity = new MemoryIdentity(p)
   val nextIdentity = new MemoryIdentity(p)
+  val structural = Bool()
+  val waitStore = new LoadStructuralWaitStoreTxn(p)
 }
 
 /** Speculative-dependent cancellation for one exact current attempt. */

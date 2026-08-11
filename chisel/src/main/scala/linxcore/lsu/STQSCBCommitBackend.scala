@@ -54,7 +54,8 @@ class STQSCBCommitBackendIO(
   val robStoreCommit = Flipped(Decoupled(new STQRobCommitToken(
     robEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth)))
+    residentGenerationWidth, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth)))
   val memoryClassify = Flipped(Decoupled(new STQMemoryClassifyToken(
     entries, robEntries, peIdWidth, stidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -97,7 +98,8 @@ class STQSCBCommitBackendIO(
     entries, robEntries, addrWidth, dataWidth, sizeWidth, lsidWidth,
     peIdWidth, stidWidth, nativeBidWidth, ridGenerationWidth,
     brobGenerationWidth, memberIndexWidth, residentGenerationWidth,
-    leaseGenerationWidth))
+    leaseGenerationWidth, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth))
   val serializedResponse = Flipped(Decoupled(
     new STQSerializedStoreResponse(
       memoryTransactionIdWidth, memoryTransactionGenerationWidth)))
@@ -197,7 +199,13 @@ class STQSCBCommitBackend(
     entries, robEntries, addrWidth, dataWidth, peIdWidth, stidWidth,
     tidWidth, sizeWidth, simtLaneWidth, mapQDepth, lsidWidth,
     nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
-    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth))
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth,
+    memoryTransactionIdWidth, memoryTransactionGenerationWidth))
+  val committedTransactionValid = RegInit(VecInit(Seq.fill(entries)(false.B)))
+  val committedTransactionValue = Reg(Vec(entries,
+    UInt(memoryTransactionIdWidth.W)))
+  val committedTransactionGeneration = Reg(Vec(entries,
+    UInt(memoryTransactionGenerationWidth.W)))
   ingress.io.commit <> io.robStoreCommit
   ingress.io.rows := io.rows
   ingress.io.memoryAttributes := memoryAttributes.io.attributes
@@ -286,14 +294,72 @@ class STQSCBCommitBackend(
   io.rawRespSucceeded := scb.io.rawRespSucceeded
   io.rawRespLineAddr := scb.io.rawRespLineAddr
 
-  io.serializedRequest <> serializer.io.request
-  serializer.io.response <> io.serializedResponse
+  val serializedRequestIndex = serializer.io.request.bits.issue.stqIndex
+  val serializedRequestTransactionValid =
+    committedTransactionValid(serializedRequestIndex)
+  io.serializedRequest.valid := serializer.io.request.valid &&
+    serializedRequestTransactionValid
+  io.serializedRequest.bits := serializer.io.request.bits
+  io.serializedRequest.bits.transactionId :=
+    committedTransactionValue(serializedRequestIndex)
+  io.serializedRequest.bits.transactionGeneration :=
+    committedTransactionGeneration(serializedRequestIndex)
+  serializer.io.request.ready := io.serializedRequest.ready &&
+    serializedRequestTransactionValid
+
+  val serializedExternalOutstanding = RegInit(false.B)
+  val serializedExternalTransactionId = Reg(UInt(memoryTransactionIdWidth.W))
+  val serializedExternalTransactionGeneration =
+    Reg(UInt(memoryTransactionGenerationWidth.W))
+  val serializedInternalTransactionId = Reg(UInt(memoryTransactionIdWidth.W))
+  val serializedInternalTransactionGeneration =
+    Reg(UInt(memoryTransactionGenerationWidth.W))
+  when(io.serializedRequest.fire) {
+    serializedExternalOutstanding := true.B
+    serializedExternalTransactionId := io.serializedRequest.bits.transactionId
+    serializedExternalTransactionGeneration :=
+      io.serializedRequest.bits.transactionGeneration
+    serializedInternalTransactionId := serializer.io.request.bits.transactionId
+    serializedInternalTransactionGeneration :=
+      serializer.io.request.bits.transactionGeneration
+  }
+  val serializedExternalResponseExact = serializedExternalOutstanding &&
+    io.serializedResponse.bits.transactionId ===
+      serializedExternalTransactionId &&
+    io.serializedResponse.bits.transactionGeneration ===
+      serializedExternalTransactionGeneration
+  serializer.io.response.valid := io.serializedResponse.valid &&
+    serializedExternalResponseExact
+  serializer.io.response.bits := io.serializedResponse.bits
+  serializer.io.response.bits.transactionId := serializedInternalTransactionId
+  serializer.io.response.bits.transactionGeneration :=
+    serializedInternalTransactionGeneration
+  io.serializedResponse.ready := serializer.io.response.ready &&
+    serializedExternalResponseExact
+  when(serializer.io.response.fire) {
+    serializedExternalOutstanding := false.B
+  }
+  val serializedExternalStaleResponse = io.serializedResponse.valid &&
+    !serializedExternalResponseExact
 
   io.commitFreeMaskValid := pendingFreeValid || terminalFreeValid
   io.commitFreeMask := Mux(pendingFreeValid, pendingFreeMask,
     terminalFreeMask)
   val offeredFreeAccepted = io.commitFreeMaskValid &&
     (io.commitFreeAcceptedMask & io.commitFreeMask) === io.commitFreeMask
+
+  for (index <- 0 until entries) {
+    when(io.commitFreeAcceptedMask(index)) {
+      committedTransactionValid(index) := false.B
+    }
+  }
+  when(io.robStoreCommit.fire) {
+    committedTransactionValid(ingress.io.markIndex) := true.B
+    committedTransactionValue(ingress.io.markIndex) :=
+      io.robStoreCommit.bits.transactionValue
+    committedTransactionGeneration(ingress.io.markIndex) :=
+      io.robStoreCommit.bits.transactionGeneration
+  }
 
   when(pendingFreeValid) {
     when(offeredFreeAccepted) {
@@ -333,7 +399,8 @@ class STQSCBCommitBackend(
   io.serializedBusy := serializer.io.busy
   io.protocolError := drain.io.orderError || drain.io.queuedIdentityError ||
     drain.io.retainedIdentityError || serializer.io.batchMalformed ||
-    serializer.io.staleResponse || serializer.io.terminalError ||
+    serializer.io.staleResponse || serializedExternalStaleResponse ||
+    serializer.io.terminalError ||
     scb.io.stateError || scb.io.respDecodeError || scb.io.protocolError
   io.empty := drain.io.empty && !serializer.io.busy && !pendingFreeValid &&
     scb.io.quiescent
@@ -341,6 +408,14 @@ class STQSCBCommitBackend(
   when(io.robStoreCommit.fire) {
     assert(io.markCommitAccepted && drain.io.enqueueAccepted,
       "ROB store commit must atomically mark the canonical STQ and enqueue CommitQ")
+  }
+  when(serializer.io.request.valid) {
+    assert(serializedRequestTransactionValid,
+      "serialized committed store must retain its architectural transaction")
+  }
+  when(io.serializedRequest.fire) {
+    assert(!serializedExternalOutstanding,
+      "serialized transport supports only one external request at a time")
   }
   when(io.markCommitAccepted) {
     assert(drain.io.enqueueAccepted,

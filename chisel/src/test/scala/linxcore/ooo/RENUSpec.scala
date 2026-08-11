@@ -204,6 +204,8 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
       dut.io.release.bits.lanes(lane).valid.poke(true.B)
       dut.io.release.bits.lanes(lane).rob.poke(
         held.entries(lane).uop.decoded.rob)
+      dut.io.release.bits.lanes(lane).epoch.poke(
+        held.entries(lane).uop.decoded.instruction.parent.identity.epoch)
       dut.io.release.bits.lanes(lane).blockLast.poke(
         held.entries(lane).uop.decoded.blockBoundary)
       (0 until 2).foreach { dest =>
@@ -214,6 +216,33 @@ class RENUSpec extends AnyFunSuite with ChiselSim {
     dut.io.release.valid.poke(true.B)
     dut.clock.step()
     dut.io.release.valid.poke(false.B)
+  }
+
+  test("renu-preserves-local-producer-epoch-across-consumer-epoch") {
+    simulate(new RENU(base(2))) { dut =>
+      clear(dut)
+      dut.io.toD3.ready.poke(false.B)
+      dut.io.fromD2.bits.count.poke(1.U)
+      dut.io.fromD2.bits.groupCount.poke(1.U)
+      pokeLocal(dut.io.fromD2.bits, 0, id = 58, OperandKind.T, None, rid = 0)
+      dut.io.fromD2.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.fromD2.valid.poke(false.B)
+      acceptHeld(dut)
+
+      dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
+      dut.io.fromD2.bits.count.poke(1.U)
+      dut.io.fromD2.bits.groupCount.poke(1.U)
+      pokeLocal(dut.io.fromD2.bits, 0, id = 59, OperandKind.T, Some(0), rid = 1)
+      dut.io.fromD2.bits.entries(0).uop.destinations(0).valid.poke(false.B)
+      dut.io.fromD2.bits.entries(0).uop.instruction.parent.identity.epoch
+        .poke(11.U)
+      dut.io.fromD2.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.fromD2.valid.poke(false.B)
+      dut.io.toD3.valid.expect(true.B)
+      dut.io.toD3.bits.entries(0).uop.sources(0).localEpoch.expect(3.U)
+    }
   }
 
   private def applyRecovery(

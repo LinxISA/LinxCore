@@ -22,8 +22,6 @@ class TOPIO(val p: CoreParams) extends Bundle {
   val systemIssue = Vec(p.iex.systemMulticycleQueues,
     Decoupled(new SystemIssueTxn(p)))
   val cmdIssue = Decoupled(new CmdIssueTxn(p))
-  val storeCommit = Flipped(Decoupled(new StoreCommitAuthorizationTxn(p)))
-  val storeClassify = Flipped(Decoupled(new StoreMemoryClassifyTxn(p)))
   val loadReissueRequest = Flipped(Decoupled(new LoadReplayRequestTxn(p)))
   val memoryFault = Decoupled(new LSUMemoryFaultTxn(p))
   val maintenance = Flipped(Decoupled(new LSUMaintenanceTxn(p)))

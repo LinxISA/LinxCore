@@ -583,12 +583,12 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | `OP_C_B_DIM` | 567 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_B_DIMI` | 568 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_EBREAK` | 569 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
-| `OP_C_LDI` | 570 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
-| `OP_C_LWI` | 571 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
+| `OP_C_LDI` | 570 | `SCALAR_LOAD` | `DISPATCH` | 1..1 | `AGU` | `AGU:LOAD_ADDRESS` | `NONE/NONE` | `LSU` | compact scalar load allocates the next T destination |
+| `OP_C_LWI` | 571 | `SCALAR_LOAD` | `DISPATCH` | 1..1 | `AGU` | `AGU:LOAD_ADDRESS` | `NONE/NONE` | `LSU` | compact scalar load allocates the next T destination |
 | `OP_C_MOVI` | 572 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_MOVR` | 573 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_OR` | 574 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
-| `OP_C_SDI` | 575 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
+| `OP_C_SDI` | 575 | `SCALAR_STORE` | `DISPATCH` | 2..2 | `STD` | `AGU:STORE_ADDRESS,STD:STORE_DATA` | `NONE/NONE` | `LSU` | compact scalar store consumes base plus relative T#1 |
 | `OP_C_SEXT_B` | 576 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_SEXT_H` | 577 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_SEXT_W` | 578 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
@@ -596,7 +596,7 @@ Catalog records: **689**; unique opcode IDs: **658**; primary-parent PC reads: *
 | `OP_C_SRLI` | 580 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_SSRGET` | 581 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_SUB` | 582 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
-| `OP_C_SWI` | 583 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
+| `OP_C_SWI` | 583 | `SCALAR_STORE` | `DISPATCH` | 2..2 | `STD` | `AGU:STORE_ADDRESS,STD:STORE_DATA` | `NONE/NONE` | `LSU` | compact scalar store consumes base plus relative T#1 |
 | `OP_C_ZEXT_B` | 584 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_ZEXT_H` | 585 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |
 | `OP_C_ZEXT_W` | 586 | `SINGLE` | `DISPATCH` | 1..1 | `ALU` | `ALU:SIMPLE_ALU` | `NONE/NONE` | `IEX` | generated dispatch recipe |

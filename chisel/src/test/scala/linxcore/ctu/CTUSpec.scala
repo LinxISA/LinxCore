@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import _root_.circt.stage.ChiselStage
 import linxcore.common.{TemplateForm, TemplateRowKind}
-import linxcore.params.{CoreParams, ParamProfiles}
+import linxcore.params.{CoreParams, ParamProfiles, SimulationParamProfiles}
 import linxcore.top.interface.{FrontEndOpKind, RecoveryCause, RecoveryPhase}
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -111,11 +111,14 @@ class CTUSpec extends AnyFunSuite with ChiselSim {
   test("expands FENTRY into the generated row recipe and spans output packets") {
     simulate(new CTU(ParamProfiles.W4)) { dut =>
       clear(dut)
-      val raw = macroInstruction(base = 0x41, m = 2, n = 7)
+      val raw = macroInstruction(base = 0x41, m = 2, n = 7) |
+        (BigInt(8) << 25) // frameImmediate = 8 * 8 = 64 bytes
       enqueue(dut, Seq(raw -> 4), firstId = 20)
       dut.io.toOoo.ready.poke(true.B)
 
       val kinds = scala.collection.mutable.ArrayBuffer.empty[BigInt]
+      val registers = scala.collection.mutable.ArrayBuffer.empty[BigInt]
+      val immediates = scala.collection.mutable.ArrayBuffer.empty[BigInt]
       while (kinds.size < 9) {
         waitForOutput(dut)
         val lanes = dut.io.toOoo.bits.count.peek().litValue.toInt
@@ -126,6 +129,8 @@ class CTUSpec extends AnyFunSuite with ChiselSim {
           op.templateOrdinal.expect(kinds.size.U)
           op.templateCount.expect(9.U)
           kinds += op.templateOpcode.peek().litValue
+          registers += op.templateRegister.peek().litValue
+          immediates += op.templateImmediate.peek().litValue
         }
         dut.clock.step()
       }
@@ -133,6 +138,9 @@ class CTUSpec extends AnyFunSuite with ChiselSim {
       assert(kinds.head == TemplateRowKind.VFORM.asUInt.litValue)
       assert(kinds(1) == TemplateRowKind.SP_SUB.asUInt.litValue)
       assert(kinds.slice(2, 8).forall(_ == TemplateRowKind.STORE.asUInt.litValue))
+      assert(immediates(1) == 64)
+      assert(registers.slice(2, 8) == Seq(2, 3, 4, 5, 6, 7))
+      assert(immediates.slice(2, 8) == Seq(56, 48, 40, 32, 24, 16))
       assert(kinds.last == TemplateRowKind.FINAL.asUInt.litValue)
     }
   }
@@ -175,6 +183,29 @@ class CTUSpec extends AnyFunSuite with ChiselSim {
       dut.io.toOoo.bits.count.expect(1.U)
       dut.io.toOoo.bits.entries(0).kind.expect(FrontEndOpKind.Encoded64)
       dut.io.toOoo.bits.entries(0).parent.identity.instructionId.expect(82.U)
+    }
+  }
+
+  test("W2 W4 W6 W8 simulation profiles execute every public template form") {
+    Seq(2, 4, 6, 8).foreach { width =>
+      simulate(new CTU(SimulationParamProfiles.forWidth(width))) { dut =>
+        clear(dut)
+        val forms = Seq(
+          macroInstruction(0x41, 2, 3),
+          macroInstruction(0x1041, 2, 3),
+          macroInstruction(0x2041, 2, 3),
+          macroInstruction(0x3041, 2, 3))
+        forms.zipWithIndex.foreach { case (raw, index) =>
+          val instructionId = 100 + index
+          enqueue(dut, Seq(raw -> 4), firstId = instructionId)
+          waitForOutput(dut)
+          dut.io.toOoo.bits.entries(0).kind.expect(FrontEndOpKind.TemplateUop)
+          val rows = dut.io.toOoo.bits.entries(0).templateCount
+            .peek().litValue.toInt
+          assert(rows > 2, s"W$width template $index was truncated to $rows rows")
+          assert(drainIds(dut, rows).forall(_ == instructionId))
+        }
+      }
     }
   }
 

@@ -11,7 +11,7 @@ class OooIexIssueP1FabricIO(
     val requireStoreReservation: Boolean = false) extends Bundle {
   val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = if (requireStoreReservation) Some(
-    Decoupled(new OooIexIssueRow(p))) else None
+    Vec(core.iex.stdPipes, Decoupled(new OooIexIssueRow(p)))) else None
   val wakeup = Input(Vec(p.iexWakeupPorts, Valid(new OooIexWakeup(p))))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
@@ -119,7 +119,7 @@ class OooIexIssueP1Fabric(
   if (requireStoreReservation) {
     io.storeReserve.get <> issue.io.storeReserve
   } else {
-    issue.io.storeReserve.ready := true.B
+    issue.io.storeReserve.foreach(_.ready := true.B)
   }
   issue.io.wakeup := io.wakeup
   issue.io.loadCancel := io.loadCancel
@@ -151,6 +151,7 @@ class OooIexIssueP1Fabric(
 
     io.readAttempts(domain) := lane.io.readAttempt
     io.readCapabilities(domain) := lane.io.readCapability
+    lane.io.operandReadyBits := io.operandReadyBits
     lane.io.readDecisionValid := io.readDecisionValid(domain)
     lane.io.readGrant := io.readGrant(domain)
     lane.io.sourceDataValid := io.sourceDataValid(domain)
@@ -168,6 +169,7 @@ class OooIexIssueP1Fabric(
     io.readRejected(domain) := lane.io.readRejected
     io.recoveryCanceled(domain) := lane.io.recoveryCanceled
     io.loadCanceled(domain) := lane.io.loadCanceled
+    issue.io.loadCancelRetries(domain) := lane.io.loadCanceled
     io.stageCanceled(domain) := lane.io.stageCanceled
     io.stageCancelRejected(domain) := lane.io.stageCancelRejected
     io.pickMalformed(domain) := issue.io.pickMalformedByDomain(domain)

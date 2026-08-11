@@ -31,8 +31,7 @@ class LSULoadSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.recoveryEvent.ready.poke(true.B)
     dut.io.storeCommit.valid.poke(false.B)
     dut.io.storeCommit.bits.poke(0.U.asTypeOf(dut.io.storeCommit.bits))
-    dut.io.storeClassify.valid.poke(false.B)
-    dut.io.storeClassify.bits.poke(0.U.asTypeOf(dut.io.storeClassify.bits))
+    dut.io.storeResolve.ready.poke(true.B)
     dut.io.loadReissueRequest.valid.poke(false.B)
     dut.io.loadReissueRequest.bits.poke(
       0.U.asTypeOf(dut.io.loadReissueRequest.bits))
@@ -85,8 +84,7 @@ class LSULoadSpec extends AnyFunSuite with ChiselSim {
       dut.io.iex.recoveryEvent.ready.poke(true.B)
       dut.io.storeCommit.valid.poke(false.B)
       dut.io.storeCommit.bits.poke(0.U.asTypeOf(dut.io.storeCommit.bits))
-      dut.io.storeClassify.valid.poke(false.B)
-      dut.io.storeClassify.bits.poke(0.U.asTypeOf(dut.io.storeClassify.bits))
+      dut.io.storeResolve.ready.poke(true.B)
       dut.io.loadReissueRequest.valid.poke(false.B)
       dut.io.loadReissueRequest.bits.poke(
         0.U.asTypeOf(dut.io.loadReissueRequest.bits))

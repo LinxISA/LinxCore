@@ -3,6 +3,7 @@ package linxcore.ooo
 import chisel3._
 import chisel3.util.{Cat, Decoupled, Fill, is, MuxLookup, PopCount, switch,
   Valid}
+import linxcore.common.DestinationKind
 import linxcore.params.CoreParams
 import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
 
@@ -160,6 +161,17 @@ class OooIexAguPipeline(
     accessBytesExact && addressModeExact && memory.dataSourceMask === 0.U
   val logicalSourceMask = VecInit(row.sources.map(_.valid)).asUInt
   val destinationMask = VecInit(row.destinations.map(_.valid)).asUInt
+  val destination = row.destinations(0)
+  val gprDestinationExact = destination.kind === DestinationKind.Gpr &&
+    destination.ptag < p.pPhysRegs.U &&
+    row.recipe.pDestinationCount === 1.U &&
+    row.recipe.tAllocationCount === 0.U &&
+    row.recipe.uAllocationCount === 0.U
+  val tDestinationExact = destination.kind === DestinationKind.T &&
+    destination.localTag < p.tPhysRegs.U && destination.localSequence.valid &&
+    row.recipe.pDestinationCount === 0.U &&
+    row.recipe.tAllocationCount === 1.U &&
+    row.recipe.uAllocationCount === 0.U
   val pcRequired = memory.addressMode === OooMemoryAddressMode.PcOffset
   val immediateRequired = memory.addressMode === OooMemoryAddressMode.BaseOffset ||
     pcRequired
@@ -170,7 +182,7 @@ class OooIexAguPipeline(
     incoming.i2.sourceMask === memory.addressSourceMask &&
     PopCount(incoming.i2.sourceMask) === row.recipe.pSourceCount &&
     PopCount(destinationMask) === 1.U &&
-    row.recipe.pDestinationCount === 1.U &&
+    (gprDestinationExact || tDestinationExact) &&
     row.recipe.pcReadRequired === pcRequired &&
     (!pcRequired || incoming.i2.pcValid) &&
     (!immediateRequired || row.immediateValid)

@@ -19,12 +19,16 @@ class STQRobCommitToken(
     val ridGenerationWidth: Int = 8,
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
-    val residentGenerationWidth: Int = 8)
+    val residentGenerationWidth: Int = 8,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Bundle {
   val logicalFirstLsid = UInt(lsidWidth.W)
   val logicalFirstStoreId = UInt(lsidWidth.W)
   val logicalRequestCount = UInt(2.W)
   val logicalBeat = UInt(1.W)
+  val transactionValue = UInt(memoryTransactionIdWidth.W)
+  val transactionGeneration = UInt(memoryTransactionGenerationWidth.W)
   val exactOwner = new STQExactOwner(
     peIdWidth, stidWidth, nativeBidWidth, log2Ceil(robEntries),
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
@@ -48,14 +52,17 @@ class STQRobCommitIngressIO(
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
-    val leaseGenerationWidth: Int = 8)
+    val leaseGenerationWidth: Int = 8,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Bundle {
   private val ptrWidth = log2Ceil(entries)
 
   val commit = Flipped(Decoupled(new STQRobCommitToken(
     robEntries, lsidWidth, peIdWidth, stidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth)))
+    residentGenerationWidth, memoryTransactionIdWidth,
+    memoryTransactionGenerationWidth)))
   val rows = Input(Vec(entries, new STQEntryBankRow(
     robEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
@@ -99,7 +106,9 @@ class STQRobCommitIngress(
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
-    val leaseGenerationWidth: Int = 8)
+    val leaseGenerationWidth: Int = 8,
+    val memoryTransactionIdWidth: Int = 8,
+    val memoryTransactionGenerationWidth: Int = 8)
     extends Module {
   require(entries > 1 && (entries & (entries - 1)) == 0,
     "STQ ROB-commit ingress requires a power-of-two physical STQ")
@@ -110,7 +119,8 @@ class STQRobCommitIngress(
     entries, robEntries, addrWidth, dataWidth, peIdWidth, stidWidth,
     tidWidth, sizeWidth, simtLaneWidth, mapQDepth, lsidWidth,
     nativeBidWidth, ridGenerationWidth, brobGenerationWidth,
-    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth))
+    memberIndexWidth, residentGenerationWidth, leaseGenerationWidth,
+    memoryTransactionIdWidth, memoryTransactionGenerationWidth))
 
   val token = io.commit.bits
   val tokenShapeExact = token.exactOwner.valid &&

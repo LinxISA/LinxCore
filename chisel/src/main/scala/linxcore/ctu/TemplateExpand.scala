@@ -39,7 +39,9 @@ class TemplateExpand(val p: CoreParams) extends Module {
       registerOrdinal := Mux(io.ordinal >= 4.U, io.ordinal - 4.U, 0.U)
     }
     is(TemplateForm.FRET_STK) {
-      registerOrdinal := Mux(io.ordinal >= 6.U, io.ordinal - 6.U, 0.U)
+      // Ordinal 1 already consumes range element zero through VLOAD and
+      // RESTORE_R10.  LOAD rows therefore resume at range element one.
+      registerOrdinal := Mux(io.ordinal >= 6.U, io.ordinal - 5.U, 0.U)
     }
   }
   val linearRegister =
@@ -48,7 +50,8 @@ class TemplateExpand(val p: CoreParams) extends Module {
     2.U + Mux(linearRegister >= 22.U, linearRegister - 22.U, linearRegister)
   val isMemoryRow =
     rowKind === TemplateRowKind.STORE.asUInt ||
-      rowKind === TemplateRowKind.LOAD.asUInt
+      rowKind === TemplateRowKind.LOAD.asUInt ||
+      rowKind === TemplateRowKind.VLOAD.asUInt
   val isStackRow =
     rowKind === TemplateRowKind.SP_SUB.asUInt ||
       rowKind === TemplateRowKind.SP_ADD.asUInt
@@ -59,9 +62,19 @@ class TemplateExpand(val p: CoreParams) extends Module {
   io.out.templateOrdinal := io.ordinal
   io.out.templateCount := io.decode.rowCount
   io.out.templateOpcode := rowKind
+  io.out.templateRegister := childRegister
+  val memoryOrdinal = Mux(
+    rowKind === TemplateRowKind.VLOAD.asUInt,
+    0.U,
+    registerOrdinal)
+  val memoryByteOffset = (memoryOrdinal + 1.U).pad(p.dataWidth) << 3
+  val memoryImmediate = Mux(
+    io.decode.form === TemplateForm.FENTRY,
+    io.decode.frameImmediate - memoryByteOffset,
+    0.U(p.dataWidth.W) - memoryByteOffset)
   io.out.templateImmediate := Mux(
     isMemoryRow,
-    childRegister,
+    memoryImmediate,
     Mux(
       isStackRow,
       io.decode.frameImmediate,

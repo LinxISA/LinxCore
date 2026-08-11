@@ -346,6 +346,8 @@ private[ooo] class PRename(val p: CoreParams) extends Module {
             row := 0.U.asTypeOf(row)
             row.valid := true.B
             row.rob := pub.entries(lane).uop.decoded.rob
+            row.epoch := pub.entries(lane).uop.decoded.instruction.parent
+              .identity.epoch
             row.blockLast := pub.entries(lane).uop.decoded.blockBoundary
             row.history(dest) := hist
             val idx = trunc(tail(pubStid) + PopCount(published.take(flat)),

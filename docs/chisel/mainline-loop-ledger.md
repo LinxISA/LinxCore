@@ -726,3 +726,71 @@ push identities are filled only after the corresponding operation succeeds.
   `Bind OOO memory order and NFRDY to one publication`.
 - Push target: `origin/codex/chisel-gap-superpowers`; exact commit and remote
   equality are recorded after the immutable commit exists.
+
+## Loop 18 — Natural W2 closure and workload-driven execution coverage
+
+- Status: in progress. This loop uses the natural ELF harness to close the
+  connected TOP path before any Dhrystone or CoreMark success claim. Its
+  iteration profile is W2, a 2048 MiB SBT heap, one outer build job, 20,000
+  maximum cycles, a 2,000-cycle heartbeat, and a 3,000-cycle deadlock window.
+  W4/W6/W8 generation is deferred during workload debugging. The simulation
+  rename/ROB floor remains 16 rows because the prior 4-row profile deadlocked
+  while an open block held all rename capacity. The natural runner now defaults
+  to this W2/one-job/20k/2k/3k iteration profile; final benchmark and width
+  gates can override each value explicitly. Four focused runner tests prove
+  the new defaults, self-test manifest, explicit parallel override, and invalid
+  job-count rejection.
+- Ownership decision: Option A remains authoritative. IEX allocates each
+  memory transaction and its initial attempt; LSU owns replay, reissue,
+  repick, rebind, and all subsequent attempts.
+- Current workload evidence: exact P/T/U readiness and cross-epoch P wakeup
+  repairs advanced the retained owner into ALU execution. Completing the base
+  scalar shift family then advanced the same W2 natural ELF from 27 to 36
+  commits. The run stopped at cycle 3,497 after last progress at cycle 496,
+  with activation IFU 116, CTU 5, OOO 36, IEX 14, and LSU 9. This is forward
+  progress, not a benchmark pass. A second fresh W2 model containing the
+  load-immediate repair advanced to 37 commits and stopped at cycle 3,488
+  after last progress at cycle 488, with activation IFU 114, CTU 5, OOO 37,
+  IEX 14, and LSU 9. The terminal state is still deadlock.
+- Compact-memory classification and typed T-destination propagation then
+  advanced the same ELF from 37 to 40 commits. The single-job W2 run stopped
+  at cycle 3,522 after last progress at cycle 522, with activation IFU 135,
+  CTU 5, OOO 40, IEX 21, and LSU 10. Static ELF decode places
+  `OP_C_SETC_NE` at `pc=0x10100` immediately after the last committed
+  `OP_C_SEXT_W`; that is the next candidate owner, not yet a retained-state
+  proof. No benchmark pass is claimed.
+- Current focused evidence: the 12-case register/immediate, 64-bit/word,
+  logical/arithmetic shift regression passes 1/1. A temporary read-only probe
+  then identified the next exact owner as zero-source `OP_HL_LUI`, with
+  `OP_LUI` retained behind it. The probe was removed. A four-case regression
+  for normalized `OP_LUI/OP_HL_LUI/OP_HL_LIS/OP_HL_LIU` now passes 1/1.
+- Focused compact-memory evidence passes frontend offset normalization, all
+  four D1 forms, AGU/LIQ/terminal T-destination propagation, the 8/8 catalog
+  form suite, and the 689-entry deterministic recipe audit.
+- Resource evidence: the shift-focused GREEN retained approximately 117.4 MB
+  before cleanup with 3.69 GB peak RSS; the load-immediate GREEN retained
+  approximately 117.3 MB with 3.68 GB peak RSS. The fresh W2 TOP elaboration
+  took approximately 649 seconds and produced an approximately 534 MB model
+  directory before cleanup. The second elaboration reused caches and completed
+  in 72 seconds; its single-thread Verilator build took 470.597 seconds and
+  the complete disposable directory occupied 494 MB. Internal ChiselSim
+  Verilator still uses `-j 0`, so internal job control remains open even though
+  all outer wrappers use one job. A temporary root-probe rebuild was stopped
+  when PCH invalidation attempted to recompile the large generated unit; the
+  probe was removed.
+- The bounded W2 scalar IQ is now two entries total, one in each of the two
+  retained banks, instead of four. This preserves the canonical execution
+  topology, two load/two store pipes, 16-row rename/ROB forward-progress
+  floors, and all fixed identity widths. The parameter RED observed 4 != 2;
+  GREEN passes all 16 profile cases. A fresh RTL-only W2 emission reduced SV
+  from 63,896,864 to 55,722,033 bytes (12.8%) and from 198 to 194 files; its
+  one-row-bank dynamic-index warnings were eliminated with a static selector.
+  The completed pre-change natural build occupied 532 MB. A new full
+  Verilator model is deferred until the next execution fix is ready.
+- Remaining gap: identify the post-LUI exact owner without rebuilding RTL for
+  diagnostics, continue W2 closure, then reach natural scalar AVS, Dhrystone,
+  and CoreMark with the required mismatch-free commit evidence. Width-matrix
+  and broader final gates follow only after W2 natural closure.
+- Branch: `codex/chisel-gap-superpowers`.
+- Commit and push: pending loop closure; no immutable benchmark-success
+  identity is claimed by this interim ledger entry.

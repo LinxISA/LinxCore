@@ -30,7 +30,7 @@ class TOPSpec extends AnyFunSuite {
 
     assert(source.contains("io.cmdIssue <> iex.io.cmdIssue"))
     assert(!source.contains("iex.io.cmdIssue.ready := true.B"))
-    assert(source.contains("traceSources.foreach(_.ready := true.B)"))
+    assert(source.contains("new TracePrefixPacker"))
     assert(!source.contains("dtu.io.traceIn.ready"))
   }
 }

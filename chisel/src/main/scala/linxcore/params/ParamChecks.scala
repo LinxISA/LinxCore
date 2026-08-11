@@ -122,6 +122,10 @@ object ParamChecks {
       "SCB response buffer depth must be positive")
     require(p.maxSourceOperands > 0, "source operand count must be positive")
     require(p.maxDestinationOperands > 0, "destination operand count must be positive")
+    require(isPowerOfTwo(p.ooo.storeCommitBufferEntries) &&
+      p.ooo.storeCommitBufferEntries >=
+        p.ooo.retireWidth * p.maxMemoryRequestsPerInstruction,
+      "OOO store-commit buffer must hold one worst-case commit batch")
 
     require(
       p.ifu.fetchBufferEntries >= p.ifu.fetchWidth,
@@ -298,11 +302,15 @@ object ParamChecks {
     require(p.lsu.loadPipes > 0, "load pipe count must be positive")
     require(p.lsu.storePipes > 0, "store pipe count must be positive")
     require(
+      p.iex.stdPipes == p.lsu.storePipes,
+      "STD pipe count must match the LSU store pipe count")
+    require(
       p.lsu.loadQueueEntries >= p.lsu.loadPipes,
       "load queue must cover all load pipes")
     require(
-      p.lsu.storeQueueEntries >= p.lsu.storePipes,
-      "store queue must cover all store pipes")
+      p.lsu.storeQueueEntries >=
+        p.iex.stdPipes * p.maxMemoryRequestsPerInstruction,
+      "store queue must cover one atomic STD reservation batch")
     require(
       p.lsu.loadReturnQueueEntries >= p.lsu.loadPipes,
       "load-return queue must cover all load pipes")

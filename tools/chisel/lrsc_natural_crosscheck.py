@@ -19,7 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 LINX_ROOT = ROOT_DIR.parents[1]
 LLVM_BIN = LINX_ROOT / "compiler/llvm/build-linxisa-clang/bin"
 QEMU_TRACE_RUNNER = ROOT_DIR / "tools/qemu/run_qemu_commit_trace.sh"
-NATURAL_RUNNER = ROOT_DIR / "tools/chisel/run_chisel_benchmark_autonomous_top_natural.sh"
+NATURAL_RUNNER = ROOT_DIR / "tools/chisel/run_top_natural.sh"
 
 TEXT_BASE = 0x10000
 DATA_BASE = 0x11000
@@ -216,7 +216,24 @@ def summarize_trace(path: Path, engine: str) -> TraceSummary:
     if not path.exists() or path.stat().st_size == 0:
         return TraceSummary(engine, path, "fail", 0, 0, 0, 0, 0, None, None, ("missing or empty trace",))
 
-    for row in iter_jsonl(path):
+    rows = list(iter_jsonl(path))
+    memory_requests: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    requests_by_value: dict[int, set[int]] = {}
+    for row in rows:
+        if row.get("event") != "memory_request" or row.get("command") != "Write":
+            continue
+        transaction = row.get("transaction")
+        if not isinstance(transaction, dict):
+            errors.append("memory request is missing transaction identity")
+            continue
+        key = (int(transaction.get("value", -1)),
+               int(transaction.get("generation", -1)))
+        memory_requests.setdefault(key, []).append(row)
+        requests_by_value.setdefault(key[0], set()).add(key[1])
+
+    for row in rows:
+        if row.get("event") == "memory_request":
+            continue
         pc = int(row.get("pc", -1))
         if pc < PC_LO or pc > PC_HI:
             continue
@@ -239,8 +256,36 @@ def summarize_trace(path: Path, engine: str) -> TraceSummary:
             else:
                 errors.append(f"SC.W at pc=0x{pc:x} wrote unsupported status 0x{wb_data:x}")
         elif is_swi(insn) and int(row.get("mem_valid", 0)) and int(row.get("mem_is_store", 0)):
+            if row.get("event") != "commit":
+                # Legacy QEMU rows contain the committed store data directly.
+                ordinary_conflict_stores += 1
+                final_memory = int(row.get("mem_wdata", 0)) & 0xFFFFFFFF
+                continue
+            transaction = row.get("transaction")
+            if not isinstance(transaction, dict):
+                errors.append(f"ordinary store at pc=0x{pc:x} is missing transaction identity")
+                continue
+            key = (int(transaction.get("value", -1)),
+                   int(transaction.get("generation", -1)))
+            matches = memory_requests.get(key, [])
+            if not matches:
+                generations = requests_by_value.get(key[0], set())
+                if generations:
+                    errors.append(
+                        f"memory request generation mismatch for transaction "
+                        f"value={key[0]}: commit={key[1]}, requests={sorted(generations)}")
+                else:
+                    errors.append(
+                        f"missing memory request for transaction value={key[0]} "
+                        f"generation={key[1]}")
+                continue
+            if len(matches) != 1:
+                errors.append(
+                    f"duplicate memory request for transaction value={key[0]} "
+                    f"generation={key[1]}: count={len(matches)}")
+                continue
             ordinary_conflict_stores += 1
-            final_memory = int(row.get("mem_wdata", 0)) & 0xFFFFFFFF
+            final_memory = int(matches[0].get("data", 0)) & 0xFFFFFFFF
 
     if lr_w < 2:
         errors.append(f"expected at least 2 LR.W rows, saw {lr_w}")
@@ -313,7 +358,8 @@ def run_qemu(elf: Path, build_dir: Path, qemu_seconds: int) -> tuple[dict[str, A
 
 def run_chisel(elf: Path, build_dir: Path, max_cycles: int) -> tuple[dict[str, Any], TraceSummary]:
     chisel_dir = build_dir / "chisel-natural"
-    trace = chisel_dir / "traces/dut.commit.jsonl"
+    manifest = chisel_dir / "report/natural_manifest.json"
+    trace = chisel_dir / "report/commit.jsonl"
     command = [
         str(NATURAL_RUNNER),
         "--elf",
@@ -322,10 +368,14 @@ def run_chisel(elf: Path, build_dir: Path, max_cycles: int) -> tuple[dict[str, A
         str(chisel_dir),
         "--max-cycles",
         str(max_cycles),
+        "--manifest",
+        str(manifest),
+        "--commit-trace",
+        str(trace),
     ]
     result = run(command)
     summary = summarize_trace(trace, "chisel")
-    if result.returncode != 0 and summary.row_count == 0:
+    if result.returncode != 0:
         summary = TraceSummary(
             engine="chisel",
             trace=trace,
@@ -337,7 +387,8 @@ def run_chisel(elf: Path, build_dir: Path, max_cycles: int) -> tuple[dict[str, A
             ordinary_conflict_stores=summary.ordinary_conflict_stores,
             first_lr_wb_data=summary.first_lr_wb_data,
             final_memory=summary.final_memory,
-            errors=summary.errors + (f"natural runner failed with returncode {result.returncode}",),
+            errors=summary.errors +
+              (f"natural runner failed with returncode {result.returncode}",),
         )
     meta = {
         "command": command,

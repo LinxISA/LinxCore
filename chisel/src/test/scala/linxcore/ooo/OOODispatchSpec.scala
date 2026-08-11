@@ -31,7 +31,8 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut: Dispatch,
       classes: Seq[UopClass.Type],
       early: Set[Int] = Set.empty,
-      trapCauses: Map[Int, BigInt] = Map.empty): Unit = {
+      trapCauses: Map[Int, BigInt] = Map.empty,
+      fastResolve: Map[Int, Int] = Map.empty): Unit = {
     val count = classes.length
     dut.io.in.bits.poke(0.U.asTypeOf(dut.io.in.bits))
     dut.io.robPrepared.poke(0.U.asTypeOf(dut.io.robPrepared))
@@ -123,6 +124,14 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
           OooFastResolveClass.BoundaryMetadata.U)
         classification.nonspeculative.poke(true.B)
         classification.dispatchClass.poke(OooDispatchClass.None.U)
+      }
+      fastResolve.get(lane).foreach { fastClass =>
+        classification.disposition.poke(OooOpcodeDisposition.FastResolve.U)
+        classification.fastResolveClass.poke(fastClass.U)
+        classification.dispatchClass.poke(OooDispatchClass.None.U)
+        classification.dispatchWrites.poke(0.U)
+        classification.dispatchDemand.foreach(_.poke(0.U))
+        classification.executionPipeCapability.foreach(_.poke(0.U))
       }
       dut.io.in.bits.entries(lane).uop.decoded.opcode.poke((0x120 + lane).U)
       dut.io.in.bits.entries(lane).uop.decoded.immediateValid.poke(true.B)
@@ -237,6 +246,22 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("fast-result producers bypass classed dispatch without blocking younger work") {
+    simulate(new Dispatch(ParamProfiles.W2)) { dut =>
+      clear(dut)
+      publish(
+        dut,
+        Seq(UopClass.System, UopClass.Bru),
+        fastResolve = Map(0 -> OooFastResolveClass.ImmediateProducer))
+
+      dut.io.iex.systemDispatch.foreach(_.valid.expect(false.B))
+      dut.io.iex.bruDispatch(0).valid.expect(true.B)
+      dut.io.iex.bruDispatch(0).bits.uop.decoded.opcode.expect(0x121.U)
+      dut.clock.step()
+      dut.io.pending.expect(false.B)
+    }
+  }
+
   test("holds valid and payload stable until a wait-for-valid consumer accepts") {
     simulate(new Dispatch(ParamProfiles.W4)) { dut =>
       clear(dut)
@@ -300,6 +325,19 @@ class OOODispatchSpec extends AnyFunSuite with ChiselSim {
       dut.io.iex.storeDispatch(0).valid.expect(false.B)
       dut.clock.step()
       dut.io.recovery.apply.valid.poke(false.B)
+      dut.io.pending.expect(false.B)
+    }
+  }
+
+  test("activates both W4 store lanes as one accepted prefix") {
+    simulate(new Dispatch(ParamProfiles.W4)) { dut =>
+      clear(dut)
+      publish(dut, Seq(UopClass.Std, UopClass.Std))
+      dut.io.iex.storeDispatch(0).valid.expect(true.B)
+      dut.io.iex.storeDispatch(0).bits.sta.uop.decoded.opcode.expect(0x120.U)
+      dut.io.iex.storeDispatch(1).valid.expect(true.B)
+      dut.io.iex.storeDispatch(1).bits.sta.uop.decoded.opcode.expect(0x121.U)
+      dut.clock.step()
       dut.io.pending.expect(false.B)
     }
   }

@@ -68,10 +68,12 @@ class STQStoreRequest(
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
     val leaseGenerationWidth: Int = 8,
-    val physicalStqEntries: Int = 0)
+    val physicalStqEntries: Int = 0,
+    val transactionIdWidth: Int = 64)
     extends Bundle {
   private val ridSlotWidth = log2Ceil(entries)
   private val leaseEntries = if (physicalStqEntries > 0) physicalStqEntries else entries
+  val transactionId = UInt(transactionIdWidth.W)
   val storeType = STQStoreType()
   val peId = UInt(peIdWidth.W)
   val stid = UInt(stidWidth.W)
@@ -123,9 +125,11 @@ class STQEntryBankRow(
     val brobGenerationWidth: Int = 8,
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
-    val leaseGenerationWidth: Int = 8)
+    val leaseGenerationWidth: Int = 8,
+    val transactionIdWidth: Int = 64)
     extends Bundle {
   private val ridSlotWidth = log2Ceil(entries)
+  val transactionId = UInt(transactionIdWidth.W)
   val valid = Bool()
   val status = STQEntryStatus()
   val storeType = STQStoreType()
@@ -206,7 +210,8 @@ class STQEntryBankIO(
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
     val leaseGenerationWidth: Int = 8,
-    val maxReserveBeats: Int = 2)
+    val maxReserveBeats: Int = 2,
+    val transactionIdWidth: Int = 64)
     extends Bundle {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   private val ptrWidth = log2Ceil(entries)
@@ -226,7 +231,8 @@ class STQEntryBankIO(
     identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth, leaseGenerationWidth, entries))
+    residentGenerationWidth, leaseGenerationWidth, entries,
+    transactionIdWidth))
   val insertReady = Output(Bool())
   val insertAccepted = Output(Bool())
   val insertAllocated = Output(Bool())
@@ -243,7 +249,8 @@ class STQEntryBankIO(
     identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth, leaseGenerationWidth, entries))
+    residentGenerationWidth, leaseGenerationWidth, entries,
+    transactionIdWidth))
   val reserveReady = Output(Bool())
   val reserveAccepted = Output(Bool())
   val reserveConflict = Output(Bool())
@@ -255,7 +262,8 @@ class STQEntryBankIO(
     identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth, leaseGenerationWidth, entries)))
+    residentGenerationWidth, leaseGenerationWidth, entries,
+    transactionIdWidth)))
   val reserveBatchReady = Output(Bool())
   val reserveBatchAccepted = Output(Bool())
   val reserveBatchConflict = Output(Bool())
@@ -267,7 +275,8 @@ class STQEntryBankIO(
     identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth, leaseGenerationWidth, entries))
+    residentGenerationWidth, leaseGenerationWidth, entries,
+    transactionIdWidth))
   val fillReady = Output(Bool())
   val fillAccepted = Output(Bool())
   val fillConflict = Output(Bool())
@@ -315,7 +324,7 @@ class STQEntryBankIO(
     identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
     sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth, leaseGenerationWidth)))
+    residentGenerationWidth, leaseGenerationWidth, transactionIdWidth)))
   val occupiedMask = Output(UInt(entries.W))
   val waitMask = Output(UInt(entries.W))
   val commitMask = Output(UInt(entries.W))
@@ -365,7 +374,8 @@ class STQEntryBank(
     val memberIndexWidth: Int = 8,
     val residentGenerationWidth: Int = 8,
     val leaseGenerationWidth: Int = 8,
-    val maxReserveBeats: Int = 2)
+    val maxReserveBeats: Int = 2,
+    val transactionIdWidth: Int = 64)
     extends Module {
   private val identityEntries = if (robEntries > 0) robEntries else entries
   require(entries > 1, "STQ entries must be greater than one")
@@ -374,8 +384,8 @@ class STQEntryBank(
   require((identityEntries & (identityEntries - 1)) == 0, "ROB entries must be a power of two")
   require(lsidWidth >= 2, "LSID width must support modular serial ordering")
   require(leaseGenerationWidth > 0, "STQ lease generation width must be positive")
-  require(maxReserveBeats == 2,
-    "canonical scalar STQ currently supports one or two atomic store beats")
+  require(maxReserveBeats >= 2 && maxReserveBeats <= entries,
+    "canonical scalar STQ atomic reservation width must fit its capacity")
 
   private val countWidth = log2Ceil(entries + 1)
 
@@ -385,14 +395,15 @@ class STQEntryBank(
     entries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth, sizeWidth,
     simtLaneWidth, mapQDepth, identityEntries, lsidWidth, nativeBidWidth,
     ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-    residentGenerationWidth, leaseGenerationWidth, maxReserveBeats))
+    residentGenerationWidth, leaseGenerationWidth, maxReserveBeats,
+    transactionIdWidth))
 
   private def rowBundle: STQEntryBankRow =
     new STQEntryBankRow(
       identityEntries, addrWidth, dataWidth, peIdWidth, stidWidth, tidWidth,
       sizeWidth, simtLaneWidth, mapQDepth, 64, lsidWidth, nativeBidWidth,
       ridGenerationWidth, brobGenerationWidth, memberIndexWidth,
-      residentGenerationWidth, leaseGenerationWidth)
+      residentGenerationWidth, leaseGenerationWidth, transactionIdWidth)
 
   private def zeroRow: STQEntryBankRow = {
     val row = Wire(rowBundle)
@@ -413,6 +424,7 @@ class STQEntryBank(
       reserved: Bool = false.B): STQEntryBankRow = {
     val row = Wire(rowBundle)
     row := 0.U.asTypeOf(row)
+    row.transactionId := req.transactionId
     row.valid := true.B
     row.status := STQEntryStatus.Wait
     row.storeType := req.storeType
@@ -690,38 +702,44 @@ class STQEntryBank(
         (row.storeIdFull === req.storeIdFull)
     }).asUInt.orR
 
-  val batchMaskLegal =
-    (io.reserveBatchMask === 1.U) || (io.reserveBatchMask === 3.U)
+  val batchMaskLegal = io.reserveBatchMask.orR &&
+    (io.reserveBatchMask & (io.reserveBatchMask + 1.U)) === 0.U
   val batchIdentityValid = VecInit((0 until maxReserveBeats).map { beat =>
     !io.reserveBatchMask(beat) || exactRequestIdentityValid(io.reserveBatch(beat))
   }).asUInt.andR
-  val batchOwnerExact =
-    !io.reserveBatchMask(1) ||
-      (io.reserveBatch(0).exactOwner.asUInt ===
-        io.reserveBatch(1).exactOwner.asUInt)
-  val batchLogicalExact =
-    !io.reserveBatchMask(1) ||
-      (io.reserveBatch(0).logicalFirstLsid ===
-        io.reserveBatch(1).logicalFirstLsid) &&
-      (io.reserveBatch(0).logicalFirstStoreId ===
-        io.reserveBatch(1).logicalFirstStoreId) &&
-      (io.reserveBatch(0).logicalRequestCount === 2.U) &&
-      (io.reserveBatch(1).logicalRequestCount === 2.U) &&
-      (io.reserveBatch(0).logicalBeat === 0.U) &&
-      (io.reserveBatch(1).logicalBeat === 1.U)
-  val batchSerialConsecutive =
-    !io.reserveBatchMask(1) ||
-      ((io.reserveBatch(1).lsIdFull === io.reserveBatch(0).lsIdFull + 1.U) &&
-        (io.reserveBatch(1).storeIdFull ===
-          io.reserveBatch(0).storeIdFull + 1.U))
+  val batchLogicalExact = (1 until maxReserveBeats).map { beat =>
+    val current = io.reserveBatch(beat)
+    val previous = io.reserveBatch(beat - 1)
+    val continuesLogical = current.exactOwner.asUInt ===
+      previous.exactOwner.asUInt
+    !io.reserveBatchMask(beat) || Mux(continuesLogical,
+      current.logicalFirstLsid === previous.logicalFirstLsid &&
+        current.logicalFirstStoreId === previous.logicalFirstStoreId &&
+        current.logicalRequestCount === previous.logicalRequestCount &&
+        current.logicalBeat === previous.logicalBeat + 1.U,
+      current.logicalBeat === 0.U)
+  }.reduce(_ && _)
+  val batchSerialConsecutive = (1 until maxReserveBeats).map { beat =>
+    !io.reserveBatchMask(beat) ||
+      (io.reserveBatch(beat).lsIdFull ===
+        io.reserveBatch(beat - 1).lsIdFull + 1.U) &&
+      (io.reserveBatch(beat).storeIdFull ===
+        io.reserveBatch(beat - 1).storeIdFull + 1.U)
+  }.reduce(_ && _)
   val batchDuplicatesResident = VecInit((0 until maxReserveBeats).map { beat =>
     io.reserveBatchMask(beat) && duplicatesResident(io.reserveBatch(beat))
   }).asUInt.orR
-  val batchInternalDuplicate = io.reserveBatchMask(1) &&
-    (io.reserveBatch(0).lsIdFull === io.reserveBatch(1).lsIdFull) &&
-    (io.reserveBatch(0).storeIdFull === io.reserveBatch(1).storeIdFull)
+  val batchInternalDuplicate = (for {
+    left <- 0 until maxReserveBeats
+    right <- left + 1 until maxReserveBeats
+  } yield io.reserveBatchMask(left) && io.reserveBatchMask(right) &&
+    io.reserveBatch(left).exactOwner.asUInt ===
+      io.reserveBatch(right).exactOwner.asUInt &&
+    io.reserveBatch(left).lsIdFull === io.reserveBatch(right).lsIdFull &&
+    io.reserveBatch(left).storeIdFull ===
+      io.reserveBatch(right).storeIdFull).reduce(_ || _)
   val batchShapeValid = batchMaskLegal && batchIdentityValid &&
-    batchOwnerExact && batchLogicalExact && batchSerialConsecutive &&
+    batchLogicalExact && batchSerialConsecutive &&
     !batchDuplicatesResident && !batchInternalDuplicate
   val batchFreeEnough = PopCount(freeMask) >= PopCount(io.reserveBatchMask)
   io.reserveBatchReady :=
@@ -729,9 +747,12 @@ class STQEntryBank(
   io.reserveBatchAccepted := io.reserveBatchValid && io.reserveBatchReady
   io.reserveBatchConflict := io.reserveBatchValid && !batchShapeValid
   val batchIndices = Wire(Vec(maxReserveBeats, UInt(log2Ceil(entries).W)))
-  batchIndices(0) := freeIndex
-  batchIndices(1) := secondFreeIndex
+  val batchRemainingFree = Wire(Vec(maxReserveBeats + 1, UInt(entries.W)))
+  batchRemainingFree(0) := freeMask
   for (beat <- 0 until maxReserveBeats) {
+    batchIndices(beat) := PriorityEncoder(batchRemainingFree(beat))
+    batchRemainingFree(beat + 1) := batchRemainingFree(beat) &
+      ~UIntToOH(batchIndices(beat), entries)
     val generation = leaseGenerations(batchIndices(beat)) + 1.U
     io.reserveBatchLeases(beat).valid :=
       io.reserveBatchAccepted && io.reserveBatchMask(beat)

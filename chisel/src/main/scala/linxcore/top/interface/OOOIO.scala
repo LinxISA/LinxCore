@@ -7,7 +7,9 @@ import linxcore.params.CoreParams
 class OOOIO(val p: CoreParams) extends Bundle {
   val fromCtu = Flipped(Decoupled(new D1Packet(p)))
   val iex = new OOOIEXIO(p)
+  val storeResolve = Flipped(Decoupled(new RobResolveTxn(p)))
   val commit = Decoupled(new CommitTxn(p))
+  val storeCommit = Decoupled(new StoreCommitAuthorizationTxn(p))
   val trap = Decoupled(new TrapEvent(p))
   val interrupt = Flipped(Valid(new InterruptRequest(p)))
   val debugRequest = Flipped(Decoupled(new DebugRequest(p)))

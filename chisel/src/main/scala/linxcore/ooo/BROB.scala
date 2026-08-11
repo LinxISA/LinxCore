@@ -280,6 +280,11 @@ class BROB(val p: CoreParams) extends Module {
     currentGeneration(stid) := scanCurrentGen(p.ooo.d3PrefixWidth)
     used(stid) := used(stid) + allocCount(p.ooo.d3PrefixWidth)
     for (lane <- 0 until p.ooo.d3PrefixWidth) {
+      val startsBlock = io.prepare.bits.entries(lane).blockStart
+      when(prepared.entries(lane).valid && startsBlock &&
+        scanCurrentValid(lane) && scanCurrentResident(lane)) {
+        tableClosed(stid)(physicalBid(scanCurrentBid(lane))) := true.B
+      }
       when(prepared.entries(lane).valid && prepared.entries(lane).allocated) {
         val boundRob = io.robPrepared.entries(lane).rob
         val preparedBid = physicalBid(prepared.entries(lane).bid)
@@ -342,7 +347,7 @@ class BROB(val p: CoreParams) extends Module {
     tableGeneration(relStid)(safePhysicalBid(rel.bid)) ===
       rel.brobGeneration &&
     tableClosed(relStid)(safePhysicalBid(rel.bid)) &&
-    relPrefixShape && relIncludesLast
+    relPrefixShape
   io.releaseReady := releaseExact
   val relRob = Wire(new RobIdentity(p))
   relRob := rel
@@ -353,15 +358,17 @@ class BROB(val p: CoreParams) extends Module {
   io.releaseRejected.bits := relRob
   when(io.release.valid && io.release.bits.count =/= 0.U) {
     when(releaseExact && io.releaseApply) {
-      val relBid = physicalBid(rel.bid)
-      tableValid(relStid)(relBid) := false.B
-      tableClosed(relStid)(relBid) := false.B
-      used(relStid) := used(relStid) - 1.U
-      val nextHead = head(relStid) +& 1.U
-      val wrap = nextHead >= p.ooo.brobEntriesPerStid.U
-      head(relStid) := Mux(wrap, 0.U(p.nativeBidWidth.W),
-        physicalBid(nextHead))
-      headGeneration(relStid) := headGeneration(relStid) + wrap.asUInt
+      when(relIncludesLast) {
+        val relBid = physicalBid(rel.bid)
+        tableValid(relStid)(relBid) := false.B
+        tableClosed(relStid)(relBid) := false.B
+        used(relStid) := used(relStid) - 1.U
+        val nextHead = head(relStid) +& 1.U
+        val wrap = nextHead >= p.ooo.brobEntriesPerStid.U
+        head(relStid) := Mux(wrap, 0.U(p.nativeBidWidth.W),
+          physicalBid(nextHead))
+        headGeneration(relStid) := headGeneration(relStid) + wrap.asUInt
+      }
     }
   }
 

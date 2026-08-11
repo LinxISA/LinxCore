@@ -5,6 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHISEL_DIR="${ROOT_DIR}/chisel"
 ONLY=()
 ALL=false
+TEST_NAME=""
 
 HEARTBEAT_SECONDS="${LINX_CHISEL_HEARTBEAT_SECONDS:-30}"
 STALL_SECONDS="${LINX_CHISEL_STALL_SECONDS:-600}"
@@ -56,6 +57,15 @@ while [[ $# -gt 0 ]]; do
       ALL=true
       shift
       ;;
+    --test-name)
+      require_value "$1" "${2:-}"
+      if [[ ! "${2}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        echo "error: --test-name contains unsupported characters: ${2}" >&2
+        exit 2
+      fi
+      TEST_NAME="${2}"
+      shift 2
+      ;;
     --heartbeat-seconds)
       require_value "$1" "${2:-}"
       HEARTBEAT_SECONDS="${2}"
@@ -92,6 +102,10 @@ if [[ "${ALL}" == true && "${#ONLY[@]}" -ne 0 ]]; then
   echo "error: --all and --only are mutually exclusive" >&2
   exit 2
 fi
+if [[ -n "${TEST_NAME}" && ( "${ALL}" == true || "${#ONLY[@]}" -ne 1 ) ]]; then
+  echo "error: --test-name requires exactly one --only selector" >&2
+  exit 2
+fi
 
 require_positive_integer "heartbeat seconds" "${HEARTBEAT_SECONDS}"
 require_non_negative_integer "stall seconds" "${STALL_SECONDS}"
@@ -117,6 +131,10 @@ elif [[ "${#ONLY[@]}" -ne 0 ]]; then
     fi
     SELECTOR_SUMMARY+="${selector}"
   done
+  if [[ -n "${TEST_NAME}" ]]; then
+    TEST_COMMAND+=" -- -z ${TEST_NAME}"
+    SELECTOR_SUMMARY+=":${TEST_NAME}"
+  fi
 else
   TEST_COMMAND="test"
   SELECTOR_SUMMARY="default"

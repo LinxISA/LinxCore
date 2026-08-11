@@ -127,6 +127,13 @@ class OooIexOperandFilesSpec extends AnyFunSuite with ChiselSim {
       dut.io.pReadResponses(0).valid.expect(true.B)
       dut.io.pReadResponses(0).bits.expect(11.U)
 
+      // A physical GPR mapping may outlive the frontend epoch that created
+      // it.  The PTag generation, not the consumer instruction epoch, is the
+      // exact reuse discriminator.
+      dut.io.pReadRequests(0).bits.epoch.poke(8.U)
+      dut.io.pReadResponses(0).valid.expect(true.B)
+      dut.io.pReadResponses(0).bits.expect(11.U)
+
       dut.io.pClear(0).valid.poke(true.B)
       pokePKey(dut.io.pClear(0).bits,
         stid = 0, ptag = 40, generation = 4)

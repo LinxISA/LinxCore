@@ -119,8 +119,10 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def defaults(dut: OooIexStoreStqFabric): Unit = {
-    dut.io.reserve.valid.poke(false.B)
-    dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
+    dut.io.reserve.foreach { reserve =>
+      reserve.valid.poke(false.B)
+      reserve.bits.poke(0.U.asTypeOf(reserve.bits))
+    }
     for (lane <- 0 until 2) {
       dut.io.storeAddress(lane).valid.poke(false.B)
       dut.io.storeAddress(lane).bits.poke(
@@ -151,6 +153,25 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     dut.io.markCommitIndex.poke(0.U)
     dut.io.commitFreeMaskValid.poke(false.B)
     dut.io.commitFreeMask.poke(0.U)
+    dut.io.completion.ready.poke(false.B)
+  }
+
+  test("W4 atomically reserves both active store lanes in the canonical STQ") {
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 8)) { dut =>
+      defaults(dut)
+      pokeStoreRow(dut.io.reserve(0).bits, memberIndex = 0, ridSlot = 0,
+        firstLsid = 20, firstStoreId = 30, requestCount = 1, stid = 1)
+      pokeStoreRow(dut.io.reserve(1).bits, memberIndex = 0, ridSlot = 1,
+        firstLsid = 21, firstStoreId = 31, requestCount = 1, stid = 1)
+      dut.io.reserve.foreach(_.valid.poke(true.B))
+      dut.io.reserve.foreach(_.ready.expect(true.B))
+      dut.io.reserveAccepted.expect(true.B)
+      dut.clock.step()
+      dut.io.reserve.foreach(_.valid.poke(false.B))
+      dut.io.residentCount.expect(2.U)
+      dut.io.rows(0).exactOwner.ridSlot.expect(0.U)
+      dut.io.rows(1).exactOwner.ridSlot.expect(1.U)
+    }
   }
 
   test("retains an address fill until its late STA side effect is permitted") {
@@ -204,13 +225,13 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       firstStoreId: BigInt,
       requestCount: Int = 1,
       stid: Int = 1): Unit = {
-    pokeStoreRow(dut.io.reserve.bits, memberIndex, ridSlot,
+    pokeStoreRow(dut.io.reserve.head.bits, memberIndex, ridSlot,
       firstLsid, firstStoreId, requestCount, stid)
-    dut.io.reserve.valid.poke(true.B)
-    dut.io.reserve.ready.expect(true.B)
+    dut.io.reserve.head.valid.poke(true.B)
+    dut.io.reserve.head.ready.expect(true.B)
     dut.io.reserveAccepted.expect(true.B)
     dut.clock.step()
-    dut.io.reserve.valid.poke(false.B)
+    dut.io.reserve.head.valid.poke(false.B)
   }
 
   private def pokeIdentity(
@@ -255,7 +276,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       defaults(dut)
       reserve(dut, 2, 2, BigInt("100000001", 16),
         BigInt("200000001", 16))
-      reserve(dut, 4, 3, BigInt("100000002", 16),
+      reserve(dut, 1, 3, BigInt("100000002", 16),
         BigInt("200000002", 16))
       dut.io.residentCount.expect(2.U)
 
@@ -278,7 +299,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.lateStaProbe.bits.stid.expect(1.U)
       dut.io.lateStaProbe.bits.tid.expect(1.U)
       dut.io.lateStaProbe.bits.bid.valid.expect(true.B)
-      dut.io.lateStaProbe.bits.bid.value.expect(3.U)
+      dut.io.lateStaProbe.bits.bid.value.expect(0x13.U)
       dut.io.lateStaProbe.bits.bid.wrap.expect(false.B)
       dut.io.lateStaProbe.bits.gid.valid.expect(true.B)
       dut.io.lateStaProbe.bits.gid.value.expect(2.U)
@@ -309,7 +330,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       loadQuery.bits.stid.poke(1.U)
       loadQuery.bits.loadBid.valid.poke(true.B)
       loadQuery.bits.loadBid.wrap.poke(false.B)
-      loadQuery.bits.loadBid.value.poke(3.U)
+      loadQuery.bits.loadBid.value.poke(0x13.U)
       loadQuery.bits.loadLsIdFullValid.poke(true.B)
       loadQuery.bits.loadLsIdFull.poke(BigInt("100000002", 16).U)
       loadQuery.bits.address.poke(0x1210.U)
@@ -328,9 +349,9 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.io.loadForwardResponse(0).bits.blocked.expect(false.B)
 
       pokeExecute(dut.io.storeData(0).bits, addressHalf = false,
-        4, 3, BigInt("100000002", 16), BigInt("200000002", 16))
+        1, 3, BigInt("100000002", 16), BigInt("200000002", 16))
       pokeExecute(dut.io.storeAddress(1).bits, addressHalf = true,
-        4, 3, BigInt("100000002", 16), BigInt("200000002", 16))
+        1, 3, BigInt("100000002", 16), BigInt("200000002", 16))
       dut.io.storeData(0).valid.poke(true.B)
       dut.io.storeAddress(1).valid.poke(true.B)
       dut.io.storeData(0).ready.expect(true.B)
@@ -345,18 +366,62 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("joined STA and STD publish one retained exact ROB completion") {
+    simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
+      defaults(dut)
+      reserve(dut, memberIndex = 2, ridSlot = 3,
+        firstLsid = 41, firstStoreId = 51)
+
+      pokeExecute(dut.io.storeAddress(0).bits, addressHalf = true,
+        memberIndex = 2, ridSlot = 3, firstLsid = 41, firstStoreId = 51)
+      pokeExecute(dut.io.storeData(1).bits, addressHalf = false,
+        memberIndex = 2, ridSlot = 3, firstLsid = 41, firstStoreId = 51)
+      dut.io.storeAddress(0).valid.poke(true.B)
+      dut.io.storeData(1).valid.poke(true.B)
+      dut.io.storeAddress(0).ready.expect(true.B)
+      dut.io.storeData(1).ready.expect(true.B)
+      dut.clock.step()
+      dut.io.storeAddress(0).valid.poke(false.B)
+      dut.io.storeData(1).valid.poke(false.B)
+
+      var cycles = 0
+      while (!dut.io.completion.valid.peek().litToBoolean && cycles < 12) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 12,
+        "canonical STQ join must retain completion after both halves arrive")
+      dut.io.completion.bits.rob.peId.expect(1.U)
+      dut.io.completion.bits.rob.stid.expect(1.U)
+      dut.io.completion.bits.rob.ridSlot.expect(3.U)
+      dut.io.completion.bits.rob.ridGeneration.expect(7.U)
+      dut.io.completion.bits.rob.memberIndex.expect(2.U)
+      dut.io.completion.bits.rob.residentGeneration.expect(9.U)
+      dut.io.completion.bits.rob.bid.expect(0x93.U)
+      dut.io.completion.bits.rob.brobGeneration.expect(8.U)
+      dut.clock.step(2)
+      dut.io.completion.valid.expect(true.B)
+
+      dut.io.completion.ready.poke(true.B)
+      dut.clock.step()
+      dut.io.completion.ready.poke(false.B)
+      dut.clock.step(2)
+      dut.io.completion.valid.expect(false.B)
+    }
+  }
+
   test("both STD lanes write independent physical data-bank ports in one cycle") {
     simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       reserve(dut, 2, 2, BigInt("100000011", 16),
         BigInt("200000011", 16))
-      reserve(dut, 4, 3, BigInt("100000012", 16),
+      reserve(dut, 1, 3, BigInt("100000012", 16),
         BigInt("200000012", 16))
 
       pokeExecute(dut.io.storeData(0).bits, addressHalf = false,
         2, 2, BigInt("100000011", 16), BigInt("200000011", 16))
       pokeExecute(dut.io.storeData(1).bits, addressHalf = false,
-        4, 3, BigInt("100000012", 16), BigInt("200000012", 16))
+        1, 3, BigInt("100000012", 16), BigInt("200000012", 16))
       dut.io.storeData(0).valid.poke(true.B)
       dut.io.storeData(1).valid.poke(true.B)
       dut.io.storeData(0).ready.expect(true.B)
@@ -378,7 +443,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
     simulate(new OooIexStoreStqFabric(core, stqEntries = 4)) { dut =>
       defaults(dut)
       pokeExecute(dut.io.storeAddress(0).bits, addressHalf = true,
-        6, 4, BigInt("100000003", 16), BigInt("200000003", 16))
+        2, 4, BigInt("100000003", 16), BigInt("200000003", 16))
       dut.io.storeAddress(0).valid.poke(true.B)
       dut.io.storeAddress(0).ready.expect(false.B)
       dut.io.leaseLookupRejected(0).expect(true.B)
@@ -481,10 +546,10 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.recovery.prepare.valid.poke(false.B)
 
-      pokeStoreRow(dut.io.reserve.bits, 2, 6,
+      pokeStoreRow(dut.io.reserve.head.bits, 2, 6,
         BigInt("100000021", 16), BigInt("200000021", 16))
-      dut.io.reserve.valid.poke(true.B)
-      dut.io.reserve.ready.expect(false.B)
+      dut.io.reserve.head.valid.poke(true.B)
+      dut.io.reserve.head.ready.expect(false.B)
       dut.io.markCommitValid.poke(true.B)
       dut.io.markCommitIndex.poke(0.U)
       dut.io.markCommitAccepted.expect(false.B)
@@ -494,7 +559,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.residentCount.expect(1.U)
 
-      dut.io.reserve.valid.poke(false.B)
+      dut.io.reserve.head.valid.poke(false.B)
       dut.io.markCommitValid.poke(false.B)
       dut.io.commitFreeMaskValid.poke(false.B)
       pokeRecoveryPlan(dut.io.recovery.abort.bits,
@@ -504,10 +569,10 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.recovery.abort.valid.poke(false.B)
       dut.io.residentCount.expect(1.U)
-      pokeStoreRow(dut.io.reserve.bits, 2, 6,
+      pokeStoreRow(dut.io.reserve.head.bits, 2, 6,
         BigInt("100000021", 16), BigInt("200000021", 16))
-      dut.io.reserve.valid.poke(true.B)
-      dut.io.reserve.ready.expect(true.B)
+      dut.io.reserve.head.valid.poke(true.B)
+      dut.io.reserve.head.ready.expect(true.B)
     }
   }
 
@@ -566,7 +631,7 @@ class OooIexStoreStqFabricSpec extends AnyFunSuite with ChiselSim {
       pokeLoadIdentity(query.bits, 0x61, pipeIndex = 0)
       query.bits.stid.poke(1.U)
       query.bits.loadBid.valid.poke(true.B)
-      query.bits.loadBid.value.poke(4.U)
+      query.bits.loadBid.value.poke(0x14.U)
       query.bits.loadLsIdFullValid.poke(true.B)
       query.bits.loadLsIdFull.poke((storeLsid + 1).U)
       query.bits.address.poke(0x123e.U)

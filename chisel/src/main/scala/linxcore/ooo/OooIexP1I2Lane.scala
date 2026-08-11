@@ -1,10 +1,14 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, Queue, Valid}
+import chisel3.util.{Decoupled, log2Ceil, MuxLookup, PopCount, Queue, Valid}
 import linxcore.common.OperandClass
 import linxcore.params.CoreParams
 import linxcore.top.interface.{RecoveryPhase, RecoveryPlan}
+
+object OooIexP1I2Lane {
+  val LoadCancelStageCount = 3
+}
 
 class OooIexP1I2LaneIO(val core: CoreParams, val p: OooParams) extends Bundle {
   val p1 = Flipped(Decoupled(new OooIexP1Request(p)))
@@ -14,6 +18,7 @@ class OooIexP1I2LaneIO(val core: CoreParams, val p: OooParams) extends Bundle {
     */
   val readAttempt = Valid(new OooIexI1ReadAttempt(p))
   val readCapability = Output(UInt(OooIexDomainCapability.Count.W))
+  val operandReadyBits = Input(new OooIexOperandReadyBits(p))
   val readDecisionValid = Input(Bool())
   val readGrant = Input(Bool())
   val sourceDataValid = Input(UInt(p.maxSourceOperands.W))
@@ -42,7 +47,8 @@ class OooIexP1I2LaneIO(val core: CoreParams, val p: OooParams) extends Bundle {
   val recoveryCanceled = Output(Vec(2, Valid(new OooIexReadRepick(p))))
   // P1, retained I1, and retained I2 cancellation diagnostics. Canonical IQ
   // inFlight/specReady mutation is driven directly by the same cancel event.
-  val loadCanceled = Output(Vec(3, Valid(new OooIexReadRepick(p))))
+  val loadCanceled = Output(Vec(OooIexP1I2Lane.LoadCancelStageCount,
+    Valid(new OooIexReadRepick(p))))
   val stageCanceled = Output(Vec(2, Valid(new OooIexStageCancel(p))))
   val stageCancelRejected = Output(Vec(2,
     Valid(new OooIexStageCancelReject(p))))
@@ -219,9 +225,11 @@ class OooIexP1I2Lane(
       val speculativeExact = !requiresSpecBypass ||
         (source.load.valid && candidate.bits.load.valid &&
           source.load.asUInt === candidate.bits.load.asUInt)
+      val epochExact = source.operandClass === OperandClass.P ||
+        candidate.bits.epoch === source.localEpoch
       candidate.valid && source.valid &&
         candidate.bits.stid === i1Request.row.stid &&
-        candidate.bits.epoch === i1Request.row.epoch &&
+        epochExact &&
         candidate.bits.producer.group.stid === i1Request.row.stid &&
         speculativeExact && (pMatch || tMatch || uMatch)
     })
@@ -250,14 +258,51 @@ class OooIexP1I2Lane(
       }
     }
   }
+  private def i1ExactFileReady(source: OooIexSourceState): Bool = {
+    def safeIndex(value: UInt, entries: Int, inRange: Bool): UInt = {
+      val width = math.max(1, log2Ceil(entries))
+      val index = if (entries == 1) 0.U(width.W) else value(width - 1, 0)
+      Mux(inRange, index, 0.U(width.W))
+    }
+    val stidInRange = i1Request.row.stid < p.stidCount.U
+    val safeStid = safeIndex(i1Request.row.stid, p.stidCount, stidInRange)
+    val ptagInRange = source.ptag < p.pPhysRegs.U
+    val safePtag = safeIndex(source.ptag, p.pPhysRegs, ptagInRange)
+    val ttagInRange = source.localTag < p.tPhysRegs.U
+    val safeTtag = safeIndex(source.localTag, p.tPhysRegs, ttagInRange)
+    val utagInRange = source.localTag < p.uPhysRegs.U
+    val safeUtag = safeIndex(source.localTag, p.uPhysRegs, utagInRange)
+    val pEntry = io.operandReadyBits.ptag(safePtag)
+    val tEntry = if (p.stidCount == 1)
+      io.operandReadyBits.ttag(0)(safeTtag)
+    else io.operandReadyBits.ttag(safeStid)(safeTtag)
+    val uEntry = if (p.stidCount == 1)
+      io.operandReadyBits.utag(0)(safeUtag)
+    else io.operandReadyBits.utag(safeStid)(safeUtag)
+    val pExact = ptagInRange && pEntry.valid && pEntry.ready &&
+      pEntry.stid === i1Request.row.stid &&
+      pEntry.generation === source.ptagGeneration
+    val tExact = stidInRange && ttagInRange && tEntry.allocated &&
+      tEntry.ready && tEntry.epoch === source.localEpoch &&
+      tEntry.sequence.asUInt === source.localSequence.asUInt
+    val uExact = stidInRange && utagInRange && uEntry.allocated &&
+      uEntry.ready && uEntry.epoch === source.localEpoch &&
+      uEntry.sequence.asUInt === source.localSequence.asUInt
+    MuxLookup(source.operandClass.asUInt, false.B)(Seq(
+      OperandClass.P.asUInt -> pExact,
+      OperandClass.T.asUInt -> tExact,
+      OperandClass.U.asUInt -> uExact))
+  }
+  val i1FileReady = VecInit(i1Request.row.sources.map(i1ExactFileReady))
   val i1SpecSourcesCovered = i1Request.row.sources.zipWithIndex.map {
     case (source, sourceIndex) =>
       !source.valid || !source.specReady || source.ready ||
-        i1BypassValid(sourceIndex)
+        i1BypassValid(sourceIndex) || i1FileReady(sourceIndex)
   }.reduce(_ && _)
   val i1RfSourceMask = VecInit(i1Request.row.sources.zipWithIndex.map {
     case (source, sourceIndex) =>
-      val requiresSpecBypass = source.specReady && !source.ready
+      val requiresSpecBypass = source.specReady && !source.ready &&
+        !i1FileReady(sourceIndex)
       source.valid && !i1BypassValid(sourceIndex) && !requiresSpecBypass
   }).asUInt
   val i1ParentIndexInRange =

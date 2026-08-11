@@ -138,7 +138,8 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
       op.templateOrdinal.poke(2.U)
       op.templateCount.poke(9.U)
       op.templateOpcode.poke(TemplateRowKind.STORE.asUInt)
-      op.templateImmediate.poke(23.U)
+      op.templateRegister.poke(23.U)
+      op.templateImmediate.poke(248.U)
       dut.io.in.valid.poke(true.B)
 
       dut.io.out.valid.expect(true.B)
@@ -147,13 +148,22 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
       decoded.uop.instruction.kind.expect(FrontEndOpKind.TemplateUop)
       decoded.uop.instruction.templateOrdinal.expect(2.U)
       decoded.uop.instruction.templateCount.expect(9.U)
-      decoded.uop.opcode.expect(TemplateRowKind.STORE.asUInt)
+      decoded.uop.opcode.expect(rule("OP_SDI").opcode.U)
       decoded.uop.uopClass.expect(UopClass.Std)
+      decoded.uop.sources(0).valid.expect(true.B)
+      decoded.uop.sources(0).kind.expect(OperandKind.Gpr)
+      decoded.uop.sources(0).atag.expect(23.U)
+      decoded.uop.sources(1).valid.expect(true.B)
+      decoded.uop.sources(1).kind.expect(OperandKind.Gpr)
+      decoded.uop.sources(1).atag.expect(1.U)
+      decoded.uop.classification.pSourceCount.expect(2.U)
+      decoded.uop.classification.pDestinationCount.expect(0.U)
       decoded.uop.memory.valid.expect(true.B)
       decoded.uop.memory.isStore.expect(true.B)
       decoded.uop.memory.requestCount.expect(1.U)
       decoded.uop.immediateValid.expect(true.B)
-      decoded.uop.immediate.expect(23.U)
+      decoded.uop.immediate.expect(248.U)
+      decoded.uop.memory.offset.expect(248.U)
       decoded.uop.instruction.parent.identity.instructionId.expect(91.U)
       decoded.uop.instruction.parent.prediction.transactionId.expect(0x1234.U)
       decoded.trap.valid.expect(false.B)
@@ -183,6 +193,63 @@ class OOODecodeSpec extends AnyFunSuite with ChiselSim {
       dut.io.out.bits.entries(0).uop.earlyComplete.expect(true.B)
       dut.io.out.bits.entries(0).uop.instruction.parent.identity.epoch
         .expect(0x8004.U)
+    }
+  }
+
+  test("VFORM_rob_only completes without consuming an issue queue") {
+    simulate(new DEC(ParamProfiles.W2)) { dut =>
+      clearDec(dut)
+      val op = dut.io.in.bits.entries(0)
+      dut.io.in.bits.count.poke(1.U)
+      op.kind.poke(FrontEndOpKind.TemplateUop)
+      op.parent.identity.peId.poke(3.U)
+      op.parent.identity.stid.poke(0.U)
+      op.parent.identity.instructionId.poke(93.U)
+      op.parent.identity.epoch.poke(4.U)
+      op.templateOrdinal.poke(0.U)
+      op.templateCount.poke(5.U)
+      op.templateOpcode.poke(TemplateRowKind.VFORM.asUInt)
+      dut.io.in.valid.poke(true.B)
+
+      val decoded = dut.io.out.bits.entries(0).uop
+      decoded.uopClass.expect(UopClass.System)
+      decoded.blockStart.expect(true.B)
+      decoded.earlyComplete.expect(true.B)
+      decoded.classification.disposition.expect(
+        OooOpcodeDisposition.FastResolve.U)
+      decoded.classification.dispatchWrites.expect(0.U)
+      decoded.classification.dispatchDemand.foreach(_.expect(0.U))
+    }
+  }
+
+  test("SP_SUB carries an exact scalar SP source and destination") {
+    simulate(new DEC(ParamProfiles.W2)) { dut =>
+      clearDec(dut)
+      val op = dut.io.in.bits.entries(0)
+      dut.io.in.bits.count.poke(1.U)
+      op.kind.poke(FrontEndOpKind.TemplateUop)
+      op.parent.identity.peId.poke(3.U)
+      op.parent.identity.stid.poke(0.U)
+      op.parent.identity.instructionId.poke(94.U)
+      op.parent.identity.epoch.poke(4.U)
+      op.templateOrdinal.poke(1.U)
+      op.templateCount.poke(5.U)
+      op.templateOpcode.poke(TemplateRowKind.SP_SUB.asUInt)
+      op.templateImmediate.poke(64.U)
+      dut.io.in.valid.poke(true.B)
+
+      val decoded = dut.io.out.bits.entries(0).uop
+      decoded.uopClass.expect(UopClass.Alu)
+      decoded.opcode.expect(rule("OP_SUBI").opcode.U)
+      decoded.sources(0).valid.expect(true.B)
+      decoded.sources(0).kind.expect(OperandKind.Gpr)
+      decoded.sources(0).atag.expect(1.U)
+      decoded.destinations(0).valid.expect(true.B)
+      decoded.destinations(0).kind.expect(OperandKind.Gpr)
+      decoded.destinations(0).atag.expect(1.U)
+      decoded.classification.pSourceCount.expect(1.U)
+      decoded.classification.pDestinationCount.expect(1.U)
+      decoded.classification.dispatchWrites.expect(1.U)
     }
   }
 

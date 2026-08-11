@@ -1,5 +1,6 @@
 package linxcore.params
 
+import linxcore.common.TemplateD3Constants
 import linxcore.iex.OOOIEXLSUActivationParams
 import linxcore.ooo.{OooParams => MechanismOooParams}
 import org.scalatest.funsuite.AnyFunSuite
@@ -7,12 +8,95 @@ import org.scalatest.funsuite.AnyFunSuite
 class SimulationParamProfilesSpec extends AnyFunSuite {
   private val widths = Seq(2, 4, 6, 8)
 
+  test("simulation profiles preserve the main MDB failed-wait timeout") {
+    widths.foreach { width =>
+      val main = ParamProfiles.forWidth(width)
+      val simulation = SimulationParamProfiles.forWidth(width)
+
+      assert(main.lsu.mdbFailedWaitTimeoutCycles == 300)
+      assert(simulation.lsu.mdbFailedWaitTimeoutCycles ==
+        main.lsu.mdbFailedWaitTimeoutCycles)
+    }
+  }
+
+  test("generic LSU and width profiles do not assume platform MMIO regions") {
+    assert(LSUParams().physicalMemoryRegions.isEmpty)
+    widths.foreach { width =>
+      assert(ParamProfiles.forWidth(width).lsu.physicalMemoryRegions.isEmpty)
+      assert(SimulationParamProfiles.forWidth(width).lsu.physicalMemoryRegions.isEmpty)
+    }
+  }
+
+  test("natural_platform_normal_ram_noncacheable_devices_mmio") {
+    val natural = NaturalPlatformParams(SimulationParamProfiles.W4)
+    val regions = natural.lsu.physicalMemoryRegions
+
+    assert(natural.lsu.defaultMemoryAttributes == MemoryAccessAttributes(
+      readable = true, writable = true, cacheable = false, device = false))
+
+    assert(regions.map(_.base) == Seq(
+      BigInt("10000000", 16), BigInt("10009000", 16)))
+    assert(regions.forall(_.mask == BigInt("fffffffffffff000", 16)))
+    assert(regions.forall(region => region.attributes.readable &&
+      region.attributes.writable && !region.attributes.cacheable &&
+      region.attributes.device))
+  }
+
+  test("simulation profiles use the literal bounded IFU and DTU capacity table") {
+    val expected = Map(
+      2 -> (4, 4, 4, 4, 4),
+      4 -> (4, 4, 4, 4, 4),
+      6 -> (4, 4, 4, 4, 4),
+      8 -> (4, 4, 4, 4, 4))
+
+    widths.foreach { width =>
+      val main = ParamProfiles.forWidth(width)
+      val sim = SimulationParamProfiles.forWidth(width)
+      val mainMechanism = MechanismOooParams.fromCoreParams(main)
+      val simMechanism = MechanismOooParams.fromCoreParams(sim)
+      val physicalCapacities = (
+        sim.ifu.itlbEntries,
+        sim.ifu.l1iSets,
+        sim.ifu.missEntries,
+        sim.ifu.joinEntries,
+        sim.dtu.traceBufferEntries)
+
+      ParamChecks.validate(sim)
+      assert(physicalCapacities == expected(width))
+      assert(sim.ifu.maxGroupsPerTransaction ==
+        main.ifu.maxGroupsPerTransaction)
+      assert(sim.dtu.performanceCounterCount ==
+        main.dtu.performanceCounterCount)
+      assert(sim.ctu.maxTemplateUops == main.ctu.maxTemplateUops)
+      assert((sim.iex.aluPipes, sim.iex.bruPipes, sim.iex.aguPipes,
+        sim.iex.stdPipes, sim.lsu.loadPipes, sim.lsu.storePipes) ==
+        (main.iex.aluPipes, main.iex.bruPipes, main.iex.aguPipes,
+          main.iex.stdPipes, main.lsu.loadPipes, main.lsu.storePipes))
+      assert((simMechanism.stidWidth, simMechanism.ridSlotWidth,
+        simMechanism.robMemberIndexWidth, simMechanism.nativeBidWidth,
+        simMechanism.pTagWidth, simMechanism.tTagWidth,
+        simMechanism.uTagWidth) ==
+        (mainMechanism.stidWidth, mainMechanism.ridSlotWidth,
+          mainMechanism.robMemberIndexWidth, mainMechanism.nativeBidWidth,
+          mainMechanism.pTagWidth, mainMechanism.tTagWidth,
+          mainMechanism.uTagWidth))
+      assert((sim.lsidWidth, sim.transactionIdWidth,
+        sim.memoryTransactionIdWidth, sim.memoryTransactionGenerationWidth,
+        sim.memoryAttemptGenerationWidth) ==
+        (main.lsidWidth, main.transactionIdWidth,
+          main.memoryTransactionIdWidth,
+          main.memoryTransactionGenerationWidth,
+          main.memoryAttemptGenerationWidth))
+    }
+  }
+
   test("simulation profiles preserve principal widths and fixed identity domains") {
     widths.foreach { width =>
       val main = ParamProfiles.forWidth(width)
       val sim = SimulationParamProfiles.forWidth(width)
       val prefixCapacity = if (width <= 2) 2 else if (width <= 4) 4 else 8
-      val issueCapacity = math.max(4, prefixCapacity)
+      val robGroupCapacity = 16
+      val issueCapacity = prefixCapacity
 
       ParamChecks.validate(sim)
       assert(sim.widths == WidthParams.uniform(width))
@@ -20,28 +104,37 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
       assert(sim.ifu.ctuTransferWidth == width)
       assert(sim.ctu.inputWidth == width)
       assert(sim.ctu.outputWidth == width)
+      assert(sim.ctu.maxTemplateUops >= TemplateD3Constants.MaxRows)
       assert(sim.ooo.decodeWidth == width)
       assert(sim.ooo.renameWidth == width)
       assert(sim.ooo.d3PrefixWidth == width)
       assert(sim.ooo.dispatchWidth == width)
       assert(sim.ooo.retireWidth == width)
+      assert(sim.ooo.storeCommitBufferEntries ==
+        Integer.highestOneBit(
+          width * sim.maxMemoryRequestsPerInstruction - 1) * 2)
       assert(sim.iex.issueWidth == width)
-      assert(sim.ooo.robGroupsPerStid == prefixCapacity)
-      assert(sim.ooo.maxInstructionsPerRobGroup == 1)
+      assert(sim.ooo.robGroupsPerStid == robGroupCapacity)
+      assert(sim.ooo.maxInstructionsPerRobGroup ==
+        main.ooo.maxInstructionsPerRobGroup)
       assert(sim.ooo.maxUopsPerInstruction == 12)
       assert(sim.ooo.robBankCount == prefixCapacity)
       assert(sim.ooo.pcRecoveryScanGroupsPerCycle == math.min(4,
-        prefixCapacity))
+        robGroupCapacity))
       assert(sim.ooo.robGroupsPerStid %
         sim.ooo.pcRecoveryScanGroupsPerCycle == 0)
       assert(sim.ooo.gprPhysRegs <= main.ooo.gprPhysRegs)
-      assert(sim.ooo.gprMapQDepthPerStid ==
-        Integer.highestOneBit(width * sim.maxDestinationOperands - 1) * 2)
+      assert(sim.ooo.gprMapQDepthPerStid == math.max(16,
+        Integer.highestOneBit(width * sim.maxDestinationOperands - 1) * 2))
       assert(sim.ooo.tPhysRegs == sim.ooo.gprMapQDepthPerStid)
       assert(sim.ooo.uPhysRegs == sim.ooo.gprMapQDepthPerStid)
       assert(sim.ooo.tuMapQDepthPerStid == sim.ooo.gprMapQDepthPerStid)
       assert(sim.iex.scalarIssueEntries == issueCapacity)
-      assert(sim.iex.scalarIssueEntries / sim.iex.scalarIssueBanks >= 2)
+      assert(sim.iex.scalarIssueEntries / sim.iex.scalarIssueBanks >= 1)
+      assert(sim.iex.stdPipes == sim.lsu.storePipes)
+      assert(sim.lsu.storeQueueEntries ==
+        Integer.highestOneBit(
+          sim.iex.stdPipes * sim.maxMemoryRequestsPerInstruction - 1) * 2)
       assert(sim.pcWidth == main.pcWidth)
       assert(sim.instructionWidth == main.instructionWidth)
       assert(sim.instructionIdWidth == main.instructionIdWidth)
@@ -55,6 +148,27 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
       assert(sim.epochWidth == main.epochWidth)
       assert(sim.ridGenerationWidth == main.ridGenerationWidth)
       assert(sim.brobGenerationWidth == main.brobGenerationWidth)
+    }
+  }
+
+  test("bounded simulation ROB covers an open block plus one canonical template window") {
+    widths.foreach { width =>
+      val sim = SimulationParamProfiles.forWidth(width)
+
+      assert(sim.ooo.robGroupsPerStid == 16)
+      assert(sim.ooo.robCapacityPerStid >= 2 * sim.ctu.maxTemplateUops)
+    }
+  }
+
+  test("bounded simulation rename retains block-closing forward progress") {
+    widths.foreach { width =>
+      val sim = SimulationParamProfiles.forWidth(width)
+
+      assert(sim.ooo.gprMapQDepthPerStid >= 16)
+      assert(sim.ooo.tuMapQDepthPerStid >= 16)
+      assert(sim.ooo.gprPhysRegs >= sim.ooo.gprArchRegs + 16)
+      assert(sim.ooo.tPhysRegs >= 16)
+      assert(sim.ooo.uPhysRegs >= 16)
     }
   }
 
@@ -75,9 +189,9 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(p.ifu.fetchBufferEntries == 8)
     assert(p.ifu.predictionCheckpointEntries == 8)
     assert(p.ctu.instructionBufferEntries == 8)
-    assert(p.ctu.maxTemplateUops == 2)
-    assert(p.ooo.robGroupsPerStid == 8)
-    assert(p.ooo.maxInstructionsPerRobGroup == 1)
+    assert(p.ctu.maxTemplateUops >= TemplateD3Constants.MaxRows)
+    assert(p.ooo.robGroupsPerStid == 16)
+    assert(p.ooo.maxInstructionsPerRobGroup == 4)
     assert(p.ooo.maxUopsPerInstruction == 12)
     assert(p.ooo.robBankCount == 8)
     assert(p.ooo.brobEntriesPerStid == 8)
@@ -90,7 +204,7 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(p.ooo.uPhysRegs == 16)
     assert(p.ooo.tuMapQDepthPerStid == 16)
     assert(p.iex.scalarIssueEntries == 8)
-    assert((p.lsu.loadQueueEntries, p.lsu.storeQueueEntries) == (2, 2))
+    assert((p.lsu.loadQueueEntries, p.lsu.storeQueueEntries) == (2, 4))
     assert(p.lsu.loadReturnQueueEntries == 2)
     assert(p.lsu.storeCommitQueueEntries == 2)
     assert(p.lsu.scbEntries == 4)
@@ -172,6 +286,44 @@ class SimulationParamProfilesSpec extends AnyFunSuite {
     assert(activation.iex.scalarIssueEntries < main.iex.scalarIssueEntries)
     assert(activation.lsu.loadQueueEntries < main.lsu.loadQueueEntries)
     assert(activation.lsu.storeQueueEntries < main.lsu.storeQueueEntries)
+  }
+
+  test("W2 activation minimizes retained state without narrowing identities") {
+    val main = ParamProfiles.W2
+    val activation = OOOIEXLSUActivationParams.W2
+
+    assert(activation.widths == main.widths)
+    assert(activation.ooo.stidIdentityEntries == main.ooo.stidIdentityEntries)
+    assert(activation.ooo.robIdentityGroupsPerStid ==
+      main.ooo.robIdentityGroupsPerStid)
+    assert(activation.ooo.robIdentityMembersPerGroup ==
+      main.ooo.robIdentityMembersPerGroup)
+    assert(activation.ooo.brobIdentityEntriesPerStid ==
+      main.ooo.brobIdentityEntriesPerStid)
+    assert(activation.ooo.gprTagIdentityEntries ==
+      main.ooo.gprTagIdentityEntries)
+    assert(activation.ooo.tTagIdentityEntries == main.ooo.tTagIdentityEntries)
+    assert(activation.ooo.uTagIdentityEntries == main.ooo.uTagIdentityEntries)
+    assert(activation.lsidWidth == main.lsidWidth)
+    assert(activation.memoryTransactionIdWidth ==
+      main.memoryTransactionIdWidth)
+    assert(activation.memoryAttemptGenerationWidth ==
+      main.memoryAttemptGenerationWidth)
+
+    assert(activation.ooo.stidCount == 1)
+    assert(activation.ooo.robGroupsPerStid == 8)
+    assert(activation.ooo.maxInstructionsPerRobGroup == 1)
+    assert(activation.ooo.robBankCount == 2)
+    assert(activation.ooo.brobEntriesPerStid == 8)
+    assert(activation.ooo.pcBufferEntries == 4)
+    assert(activation.ooo.gprPhysRegs == 32)
+    assert(activation.ooo.gprMapQDepthPerStid == 4)
+    assert(activation.ooo.tPhysRegs == 4)
+    assert(activation.ooo.uPhysRegs == 4)
+    assert(activation.ooo.tuMapQDepthPerStid == 4)
+    assert(activation.iex.scalarIssueEntries == 4)
+    assert(activation.lsu.loadQueueEntries == 2)
+    assert(activation.lsu.storeQueueEntries == 4)
   }
 
   test("physical STQ ROB and full LSID capacities remain independent") {

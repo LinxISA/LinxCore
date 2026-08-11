@@ -40,6 +40,30 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("public OOO carries both store bindings inward and ready outward") {
+    val p = SimulationParamProfiles.W4
+    val chirrtl = ChiselStage.emitCHIRRTL(new OOO(p))
+    val bindingLines = chirrtl.linesIterator
+      .filter(line => line.trim.startsWith("connect") &&
+        line.contains("storeBinding"))
+      .mkString("\n")
+
+    for (lane <- 0 until p.iex.stdPipes) {
+      withClue(bindingLines) {
+        assert(chirrtl.contains(
+          s"connect d3s1.io.iex.storeBinding[$lane].valid, io.iex.storeBinding[$lane].valid"))
+        assert(chirrtl.contains(
+          s"connect d3s1.io.iex.storeBinding[$lane].bits.rob.peId, io.iex.storeBinding[$lane].bits.rob.peId"))
+        assert(chirrtl.contains(
+          s"connect d3s1.io.iex.storeBinding[$lane].bits.transaction.value, io.iex.storeBinding[$lane].bits.transaction.value"))
+        assert(chirrtl.contains(
+          s"connect d3s1.io.iex.storeBinding[$lane].bits.memoryOrder.requestCount, io.iex.storeBinding[$lane].bits.memoryOrder.requestCount"))
+        assert(chirrtl.contains(
+          s"connect io.iex.storeBinding[$lane].ready, d3s1.io.iex.storeBinding[$lane].ready"))
+      }
+    }
+  }
+
   private def clear(dut: OOOD3S1Graph): Unit = {
     dut.io.fromD2.valid.poke(false.B)
     dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
@@ -49,8 +73,11 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
-    dut.io.iex.fastWriteback.ready.poke(true.B)
-    dut.io.iex.fastWakeup.ready.poke(true.B)
+    dut.io.iex.fastResult.ready.poke(true.B)
+    dut.io.iex.storeBinding.foreach { binding =>
+      binding.valid.poke(false.B)
+      binding.bits.poke(0.U.asTypeOf(binding.bits))
+    }
     dut.io.iex.pcBufferReadAddress.foreach { address =>
       address.poke(0.U.asTypeOf(address))
     }
@@ -65,6 +92,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.recoveryEvent.valid.poke(false.B)
     dut.io.iex.recoveryEvent.bits.poke(0.U.asTypeOf(dut.io.iex.recoveryEvent.bits))
     dut.io.commit.ready.poke(true.B)
+    dut.io.storeCommit.ready.poke(true.B)
     dut.io.trap.ready.poke(true.B)
     dut.io.interrupt.valid.poke(false.B)
     dut.io.interrupt.bits.poke(0.U.asTypeOf(dut.io.interrupt.bits))
@@ -356,8 +384,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
     simulate(new OOOD3S1Graph(p)) { dut =>
       clear(dut)
       dut.io.commit.ready.poke(false.B)
-      dut.io.iex.fastWriteback.ready.poke(false.B)
-      dut.io.iex.fastWakeup.ready.poke(true.B)
+      dut.io.iex.fastResult.ready.poke(false.B)
 
       val row = dut.io.fromD2.bits.entries(0).uop
       dut.io.fromD2.bits.poke(0.U.asTypeOf(dut.io.fromD2.bits))
@@ -400,28 +427,25 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.fromD2.valid.poke(false.B)
 
       cycles = 0
-      while (!dut.io.iex.fastWriteback.valid.peek().litToBoolean &&
+      while (!dut.io.iex.fastResult.valid.peek().litToBoolean &&
           cycles < 32) {
         dut.io.commit.valid.expect(false.B)
         dut.clock.step(); cycles += 1
       }
       assert(cycles < 32)
-      val held = dut.io.iex.fastWriteback.bits.peek()
-      dut.io.iex.fastWriteback.bits.value.expect(0x4030.U)
-      dut.io.iex.fastWakeup.valid.expect(false.B)
+      val held = dut.io.iex.fastResult.bits.peek()
+      dut.io.iex.fastResult.bits.writeback.value.expect(0x4030.U)
       (0 until 3).foreach { _ =>
         dut.io.commit.valid.expect(false.B)
-        dut.io.iex.fastWriteback.valid.expect(true.B)
-        dut.io.iex.fastWriteback.bits.expect(held)
+        dut.io.iex.fastResult.valid.expect(true.B)
+        dut.io.iex.fastResult.bits.expect(held)
         dut.clock.step()
       }
 
-      dut.io.iex.fastWriteback.ready.poke(true.B)
-      dut.io.iex.fastWriteback.valid.expect(true.B)
-      dut.io.iex.fastWakeup.valid.expect(true.B)
+      dut.io.iex.fastResult.ready.poke(true.B)
+      dut.io.iex.fastResult.valid.expect(true.B)
       dut.clock.step()
-      dut.io.iex.fastWriteback.valid.expect(false.B)
-      dut.io.iex.fastWakeup.valid.expect(false.B)
+      dut.io.iex.fastResult.valid.expect(false.B)
 
       cycles = 0
       while (!dut.io.commit.valid.peek().litToBoolean && cycles < 32) {
@@ -429,7 +453,7 @@ class OOOIntegrationSpec extends AnyFunSuite with ChiselSim {
       }
       assert(cycles < 32)
       dut.io.commit.bits.count.expect(1.U)
-      dut.io.commit.bits.entries(0).rob.expect(held.rob)
+      dut.io.commit.bits.entries(0).rob.expect(held.writeback.rob)
     }
   }
 

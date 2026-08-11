@@ -4,6 +4,7 @@ import chisel3._
 import chisel3.util.{Decoupled, MuxLookup, PopCount, switch, is}
 import linxcore.common.{BoundaryKind, DestinationKind, OperandClass,
   TemplateRowKind}
+import linxcore.frontend.FrontendOpcodeDecodeTable
 import linxcore.params.CoreParams
 import linxcore.top.interface._
 
@@ -63,11 +64,11 @@ class DEC(val p: CoreParams) extends Module {
     target.parent.prediction.valid := source.prediction.valid
     target.parent.prediction.predictionTag := source.prediction.predictionTag
     target.parent.prediction.transactionId := source.prediction.transactionId
-    target.parent.prediction.fetchPacketUid := source.identity.instructionId
-    target.parent.prediction.fetchSeq := source.identity.instructionId
+    target.parent.prediction.fetchPacketUid := source.prediction.fetchPacketUid
+    target.parent.prediction.fetchSeq := source.prediction.fetchSeq
     target.parent.prediction.requestPc := source.prediction.requestPc
     target.parent.prediction.taken := source.prediction.taken
-    target.parent.prediction.branchPc := source.pc
+    target.parent.prediction.branchPc := source.prediction.branchPc
     target.parent.prediction.target := source.prediction.target
     target.parent.prediction.fallthroughPc := source.prediction.fallthroughPc
     target.parent.prediction.kind := BoundaryKind.Fall
@@ -89,7 +90,7 @@ class DEC(val p: CoreParams) extends Module {
       }
     }
     target.parent.prediction.provider := source.prediction.provider
-    target.parent.prediction.stage := 0.U
+    target.parent.prediction.stage := source.prediction.stage
     target.parent.prediction.confidence := source.prediction.confidence
     target.parent.prediction.checkpointId := source.prediction.checkpointId
     target.parent.prediction.epoch := source.prediction.epoch
@@ -261,7 +262,24 @@ class DEC(val p: CoreParams) extends Module {
   private def mapTemplate(output: DecodedLane, input: FrontEndOp): Unit = {
     output.uop.valid := true.B
     output.uop.instruction := input
-    output.uop.opcode := input.templateOpcode
+    val templateSpSub = input.templateOpcode === TemplateRowKind.SP_SUB.asUInt
+    val templateSpAdd = input.templateOpcode === TemplateRowKind.SP_ADD.asUInt
+    val templateSpAdjust = templateSpSub || templateSpAdd
+    val templateStore = input.templateOpcode === TemplateRowKind.STORE.asUInt
+    val templateLoad = input.templateOpcode === TemplateRowKind.LOAD.asUInt ||
+      input.templateOpcode === TemplateRowKind.VLOAD.asUInt
+    output.uop.opcode := MuxLookup(input.templateOpcode,
+      input.templateOpcode)(Seq(
+        TemplateRowKind.SP_SUB.asUInt ->
+          FrontendOpcodeDecodeTable.OP_SUBI.U,
+        TemplateRowKind.SP_ADD.asUInt ->
+          FrontendOpcodeDecodeTable.OP_ADDI.U,
+        TemplateRowKind.STORE.asUInt ->
+          FrontendOpcodeDecodeTable.OP_SDI.U,
+        TemplateRowKind.LOAD.asUInt ->
+          FrontendOpcodeDecodeTable.OP_LDI.U,
+        TemplateRowKind.VLOAD.asUInt ->
+          FrontendOpcodeDecodeTable.OP_LDI.U))
     output.uop.uopClass := UopClass.System
     switch(input.templateOpcode) {
       is(TemplateRowKind.SP_SUB.asUInt) { output.uop.uopClass := UopClass.Alu }
@@ -278,37 +296,36 @@ class DEC(val p: CoreParams) extends Module {
         output.uop.uopClass := UopClass.Boundary
       }
     }
-    val templateStore = input.templateOpcode === TemplateRowKind.STORE.asUInt
-    val templateLoad = input.templateOpcode === TemplateRowKind.LOAD.asUInt ||
-      input.templateOpcode === TemplateRowKind.VLOAD.asUInt
     val templateBranch = output.uop.uopClass === UopClass.Bru
     val templateBoundary = output.uop.uopClass === UopClass.Boundary
+    val templateRobOnly = templateBoundary ||
+      input.templateOpcode === TemplateRowKind.VFORM.asUInt
     output.uop.classification.valid := true.B
-    output.uop.classification.disposition := Mux(templateBoundary,
+    output.uop.classification.disposition := Mux(templateRobOnly,
       OooOpcodeDisposition.FastResolve.U, OooOpcodeDisposition.Dispatch.U)
     output.uop.classification.kind := Mux(templateStore,
       OooOpcodeRecipeKind.ScalarStore.U,
       Mux(templateLoad, OooOpcodeRecipeKind.ScalarLoad.U,
-        Mux(templateBoundary, OooOpcodeRecipeKind.Boundary.U,
+        Mux(templateRobOnly, OooOpcodeRecipeKind.Boundary.U,
           OooOpcodeRecipeKind.CtuTemplate.U)))
     output.uop.classification.uopCountMin := 1.U
     output.uop.classification.uopCountMax := Mux(templateStore, 2.U, 1.U)
     output.uop.classification.splitKind := Mux(templateStore,
       OooLateSplitKind.StoreAddressData.U, OooLateSplitKind.None.U)
-    output.uop.classification.fastResolveClass := Mux(templateBoundary,
+    output.uop.classification.fastResolveClass := Mux(templateRobOnly,
       OooFastResolveClass.BoundaryMetadata.U,
       OooFastResolveClass.None.U)
     output.uop.classification.sideEffectOwner := Mux(
       templateStore || templateLoad, OooSideEffectOwner.Lsu.U,
       Mux(templateBranch, OooSideEffectOwner.Bctrl.U,
-        Mux(templateBoundary, OooSideEffectOwner.Ctu.U,
+        Mux(templateRobOnly, OooSideEffectOwner.Ctu.U,
           OooSideEffectOwner.Iex.U)))
     output.uop.classification.mayTrap := input.parent.fetchFault ||
       templateStore || templateLoad
     output.uop.classification.mayTrapLate := templateStore || templateLoad
     output.uop.classification.mayRedirect := templateBranch
     output.uop.classification.nonspeculative :=
-      templateBranch || templateBoundary
+      templateBranch || templateRobOnly
     output.uop.classification.pcReadRequired := templateBranch
     output.uop.classification.pcReadClass := Mux(templateBranch,
       OooDispatchClass.Bru.U, 0.U)
@@ -322,7 +339,7 @@ class DEC(val p: CoreParams) extends Module {
         UopClass.Cmd.asUInt -> OooDispatchClass.Cmd.U,
         UopClass.Boundary.asUInt -> OooDispatchClass.None.U))
     output.uop.classification.dispatchWrites := Mux(
-      templateBoundary, 0.U, Mux(templateStore, 2.U, 1.U))
+      templateRobOnly, 0.U, Mux(templateStore, 2.U, 1.U))
     for (issueClass <- 0 until p.iex.issueQueueClasses) {
       output.uop.classification.dispatchDemand(issueClass) := 0.U
       output.uop.classification.executionPipeCapability(issueClass) := 0.U
@@ -356,6 +373,35 @@ class DEC(val p: CoreParams) extends Module {
     }
     output.uop.classification.memoryRequestCount :=
       Mux(templateStore || templateLoad, 1.U, 0.U)
+    when(templateSpAdjust) {
+      output.uop.sources(0).valid := true.B
+      output.uop.sources(0).kind := OperandKind.Gpr
+      output.uop.sources(0).atag := 1.U
+      output.uop.destinations(0).valid := true.B
+      output.uop.destinations(0).kind := OperandKind.Gpr
+      output.uop.destinations(0).atag := 1.U
+      output.uop.classification.pSourceCount := 1.U
+      output.uop.classification.pDestinationCount := 1.U
+    }
+    when(templateStore) {
+      output.uop.sources(0).valid := true.B
+      output.uop.sources(0).kind := OperandKind.Gpr
+      output.uop.sources(0).atag := input.templateRegister
+      output.uop.sources(1).valid := true.B
+      output.uop.sources(1).kind := OperandKind.Gpr
+      output.uop.sources(1).atag := 1.U
+      output.uop.classification.pSourceCount := 2.U
+    }
+    when(templateLoad) {
+      output.uop.sources(0).valid := true.B
+      output.uop.sources(0).kind := OperandKind.Gpr
+      output.uop.sources(0).atag := 1.U
+      output.uop.destinations(0).valid := true.B
+      output.uop.destinations(0).kind := OperandKind.Gpr
+      output.uop.destinations(0).atag := input.templateRegister
+      output.uop.classification.pSourceCount := 1.U
+      output.uop.classification.pDestinationCount := 1.U
+    }
     output.uop.memory.valid := templateStore || templateLoad
     output.uop.memory.isStore := templateStore
     output.uop.memory.isLoad := templateLoad
@@ -372,6 +418,7 @@ class DEC(val p: CoreParams) extends Module {
     output.uop.blockStop := input.templateOpcode === TemplateRowKind.FINAL.asUInt
     output.uop.earlyComplete :=
       input.parent.fetchFault ||
+        input.templateOpcode === TemplateRowKind.VFORM.asUInt ||
         input.templateOpcode === TemplateRowKind.FINAL.asUInt
     output.uop.blockBoundary :=
       output.uop.blockStart || output.uop.blockStop

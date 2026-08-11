@@ -42,6 +42,10 @@ class RENU(val p: CoreParams) extends Module {
 
   val pendingValid = RegInit(VecInit(Seq.fill(p.ooo.stidCount)(false.B)))
   val pending = Reg(Vec(p.ooo.stidCount, new D3RenameGroup(p)))
+  for (stid <- 0 until p.ooo.stidCount) {
+    io.reservedGroupCount(stid) := Mux(
+      pendingValid(stid), pending(stid).groupCount, 0.U)
+  }
   val heldGrantValid = RegInit(false.B)
   val heldGrantStid = RegInit(0.U(stidIndexWidth.W))
 
@@ -157,6 +161,7 @@ class RENU(val p: CoreParams) extends Module {
         base.tGeneration := tuSrc.tGeneration
         base.tSeqIndex := tuSrc.tSeqIndex
         base.tSeqGeneration := tuSrc.tSeqGeneration
+        base.localEpoch := tuSrc.localEpoch
         base.ttagValid := true.B
         base.ready := tuSrc.ready
       }.elsewhen(tuSrc.utagValid) {
@@ -164,6 +169,7 @@ class RENU(val p: CoreParams) extends Module {
         base.uGeneration := tuSrc.uGeneration
         base.uSeqIndex := tuSrc.uSeqIndex
         base.uSeqGeneration := tuSrc.uSeqGeneration
+        base.localEpoch := tuSrc.localEpoch
         base.utagValid := true.B
         base.ready := tuSrc.ready
       }.otherwise {

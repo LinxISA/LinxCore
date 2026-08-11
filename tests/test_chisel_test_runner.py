@@ -81,6 +81,16 @@ class ChiselTestRunnerTest(unittest.TestCase):
         self.assertEqual(captured["argv"][-1], "testOnly *FooSpec* *BarSpec*")
         self.assertEqual(captured["argv"].count("--server"), 1)
 
+    def test_test_name_limits_one_suite_to_one_small_scenario(self):
+        result = self.run_runner(
+            "--only", "FooSpec", "--test-name", "joined")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.read_capture()["argv"][-1],
+            "testOnly *FooSpec* -- -z joined",
+        )
+
     def test_all_and_only_are_mutually_exclusive(self):
         result = self.run_runner("--all", "--only", "FooSpec")
 
@@ -99,6 +109,13 @@ class ChiselTestRunnerTest(unittest.TestCase):
             if line.startswith("linx-chisel-summary ")
         )
         self.assertEqual(json.loads(summary)["jobs"], 1)
+
+    def test_default_heap_is_two_gib(self):
+        result = self.run_runner("--only", "FooSpec")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        argv = self.read_capture()["argv"]
+        self.assertEqual(argv[argv.index("--mem") + 1], "2048")
 
     def test_ooo_integration_uses_bounded_simulation_profiles(self):
         source = (

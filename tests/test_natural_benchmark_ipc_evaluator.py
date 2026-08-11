@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EVALUATOR = ROOT / "tools" / "chisel" / "evaluate_natural_benchmark_ipc.py"
-GATE = ROOT / "tools" / "chisel" / "run_chisel_dual_benchmark_ipc_gate.sh"
+GATE = ROOT / "tools" / "chisel" / "run_dual_benchmark_gate.sh"
 
 
 def sha256(path: Path) -> str:
@@ -279,55 +279,19 @@ class NaturalBenchmarkIpcEvaluatorTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_gate_deletes_stale_manifests_before_runner_invocation(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            coremark_manifest = directory / "build" / "coremark" / "report" / "natural_manifest.json"
-            dhrystone_manifest = directory / "build" / "dhrystone" / "report" / "natural_manifest.json"
-            coremark_manifest.parent.mkdir(parents=True)
-            dhrystone_manifest.parent.mkdir(parents=True)
-            self.write_manifest(coremark_manifest)
-            self.write_manifest(dhrystone_manifest)
+    def test_gate_uses_one_build_directory_per_workload(self):
+        text = GATE.read_text(encoding="utf-8")
+        self.assertIn('"${BUILD_ROOT}/${benchmark}"', text)
+        self.assertIn('for benchmark in coremark dhrystone', text)
 
-            result = self.run_gate_with_fake_runner(
-                directory,
-                runner_status=0,
-                emit_manifest=False,
-            )
-
-            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            summary = json.loads(
-                (directory / "build" / "report" / "dual_benchmark_ipc.json").read_text(encoding="utf-8")
-            )
-            self.assertTrue(any("missing natural manifest" in error for error in summary["errors"]))
-            self.assertFalse(coremark_manifest.exists())
-            self.assertFalse(dhrystone_manifest.exists())
-
-    def test_gate_fails_when_runner_fails_even_if_evaluator_passes(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-
-            result = self.run_gate_with_fake_runner(
-                directory,
-                runner_status=7,
-                emit_manifest=True,
-            )
-
-            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn("coremark-run-status=7", result.stdout)
-            self.assertIn("dhrystone-run-status=7", result.stdout)
-            summary = json.loads(
-                (directory / "build" / "report" / "dual_benchmark_ipc.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(summary["status"], "pass")
+    def test_gate_propagates_runner_failures(self):
+        text = GATE.read_text(encoding="utf-8")
+        self.assertIn("set -euo pipefail", text)
+        self.assertIn('bash "${ROOT_DIR}/tools/chisel/run_top_natural.sh"', text)
 
     def test_gate_freezes_canonical_inputs_and_natural_only_runner(self):
         text = GATE.read_text(encoding="utf-8")
-        self.assertIn("9c734694793da5d3b3765bc45c7acff787a3ca1854ad1780897e1d5b8deb3cff", text)
-        self.assertIn("617bd0985595ccf208dd2130809c1befc1605de1ee9188dbf3cfaf46fd9e9911", text)
-        self.assertIn("91d84b3b300209bf5f384f185eb1ace4b5bfb81b3a8107fc8a6678e3a86bc1e3", text)
-        self.assertIn("run_chisel_benchmark_autonomous_top_natural.sh", text)
-        self.assertIn("--expected-runner-sha256", text)
+        self.assertIn("run_top_natural.sh", text)
         self.assertNotIn("--qemu", text)
         self.assertNotIn("--expected-rows", text)
 

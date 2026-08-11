@@ -284,7 +284,7 @@ class OooIexAtomicReadArbiter(
         io.tReadRequests(port).bits.domain := domain.U
         io.tReadRequests(port).bits.sourceIndex := sourceIndex.U
         io.tReadRequests(port).bits.stid := attempt.stid
-        io.tReadRequests(port).bits.epoch := attempt.epoch
+        io.tReadRequests(port).bits.epoch := source.localEpoch
         io.tReadRequests(port).bits.source := source
         sourceDataValidBySource(domain)(sourceIndex) :=
           io.tReadResponses(port).valid
@@ -297,7 +297,7 @@ class OooIexAtomicReadArbiter(
         io.uReadRequests(port).bits.domain := domain.U
         io.uReadRequests(port).bits.sourceIndex := sourceIndex.U
         io.uReadRequests(port).bits.stid := attempt.stid
-        io.uReadRequests(port).bits.epoch := attempt.epoch
+        io.uReadRequests(port).bits.epoch := source.localEpoch
         io.uReadRequests(port).bits.source := source
         sourceDataValidBySource(domain)(sourceIndex) :=
           io.uReadResponses(port).valid

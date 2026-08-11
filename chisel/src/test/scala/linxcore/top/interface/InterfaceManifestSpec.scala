@@ -96,8 +96,9 @@ class InterfaceManifestSpec extends AnyFunSuite {
         "lsu_to_iex_load_cancel" -> ("LSU", "IEX", 2, "LoadCancelTxn"),
         "ooo_to_lsu_store_commit" ->
           ("OOO", "LSU", 1, "StoreCommitAuthorizationTxn"),
-        "translation_to_lsu_store_classify" ->
-          ("Translation", "LSU", 1, "StoreMemoryClassifyTxn"),
+        "lsu_internal_store_classify" ->
+          ("LSU Translation", "LSU Commit Backend", 1,
+            "StoreMemoryClassifyTxn"),
         "external_cmd_issue" -> ("IEX", "External CMD", 1, "CmdIssueTxn"))
 
       expected.foreach { case (name, (producer, consumer, lanes, payload)) =>

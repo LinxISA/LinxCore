@@ -4,6 +4,8 @@
 <!-- ndf: kind=req level=must layer=L1 status=stable since=0.1 depends-on=ARC-TOP-020,D-PREFIX-001,D-IDENTITY-001 -->
 
 OOO shall publish architectural commit as a continuous oldest-first prefix.
+An ordinary prefix shall not cross a BROB BID/generation boundary; a younger
+block becomes eligible only after the current head block's prefix applies.
 Each committed entry shall carry its complete ROB and instruction identities,
 architectural result, memory side effect summary, and precise trap state.
 Commit-side release to rename, ROB, and BROB owners shall use side-effect-free

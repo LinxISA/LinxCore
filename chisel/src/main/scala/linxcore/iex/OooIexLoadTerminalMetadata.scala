@@ -230,12 +230,18 @@ class OooIexLoadTerminalMetadata(
       destination: LoadReplayDestination,
       request: OooIexAguLoadRequest): Bool = {
     val previous = request.execute.i2.row.payload.previousPDestinations(0)
-    destination.valid && destination.kind === DestinationKind.Gpr &&
-      request.destination.valid && request.destination.kind === DestinationKind.Gpr &&
-      destination.archTag === request.destination.atag &&
-      destination.relTag === request.destination.relativeIndex &&
+    val pExact = destination.kind === DestinationKind.Gpr &&
+      request.destination.kind === DestinationKind.Gpr &&
       destination.physTag === request.destination.ptag &&
       destination.oldPhysTag === previous.ptag
+    val tExact = destination.kind === DestinationKind.T &&
+      request.destination.kind === DestinationKind.T &&
+      destination.physTag === request.destination.localTag &&
+      destination.oldPhysTag === 0.U
+    destination.valid && request.destination.valid && (pExact || tExact) &&
+      destination.archTag === request.destination.atag &&
+      destination.relTag === request.destination.relativeIndex &&
+      destination.kind === request.destination.kind
   }
 
   private def operandClass(destination: OooIexDestinationState): OperandClass.Type =

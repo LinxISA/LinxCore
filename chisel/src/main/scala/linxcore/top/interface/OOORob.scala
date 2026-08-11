@@ -48,6 +48,23 @@ class OOORobResidentHeadPreview(val p: CoreParams) extends Bundle {
   val noflushEligible = Bool()
 }
 
+/** Read-only identity and completion state of one STID's architectural ROB head.
+  *
+  * This is diagnostic visibility over the existing ROB owner. It must not be
+  * used as a second commit, recovery, or residency owner.
+  */
+class OOORobHeadStatus(val p: CoreParams) extends Bundle {
+  val valid = Bool()
+  val completed = Bool()
+  val retired = Bool()
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val instruction = new InstructionIdentity(p)
+  val rob = new RobIdentity(p)
+  val pc = UInt(p.pcWidth.W)
+  val instructionBits = UInt(p.instructionWidth.W)
+  val opcode = UInt(p.opcodeWidth.W)
+}
+
 class OOORobMemoryRecovery(val p: CoreParams) extends Bundle {
   val valid = Bool()
   val transactionId = UInt(p.transactionIdWidth.W)

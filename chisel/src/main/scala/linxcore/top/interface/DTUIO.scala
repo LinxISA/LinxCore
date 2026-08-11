@@ -6,6 +6,7 @@ import linxcore.params.CoreParams
 
 class DTUIO(val p: CoreParams) extends Bundle {
   val traceIn = Flipped(Decoupled(new TracePacket(p)))
+  val traceOverflowDropped = Input(UInt(64.W))
   val commitIn = Flipped(Decoupled(new CommitTxn(p)))
   val debugRequest = Flipped(Decoupled(new DebugRequest(p)))
   val debugResponse = Decoupled(new DebugResponse(p))

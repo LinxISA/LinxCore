@@ -50,7 +50,8 @@ class OooIexStorePipelineIO(
     memberIndexWidth = p.robMemberIndexWidth,
     residentGenerationWidth = p.residentGenerationWidth,
     leaseGenerationWidth = p.executeSlotGenerationWidth,
-    physicalStqEntries = stqEntries))
+    physicalStqEntries = stqEntries,
+    transactionIdWidth = p.transactionIdWidth))
   val recoveryApply = Flipped(Valid(new RecoveryPlan(core)))
   val loadCancel = Input(Vec(p.iexLoadCancelPorts,
     Valid(new OooIexLoadCancel(p))))
@@ -217,6 +218,7 @@ class OooIexStorePipeline(
     val fullLsid = value.lease.firstLsid + beat
     val fullStoreId = value.lease.firstStoreId + beat
     req := 0.U.asTypeOf(req)
+    req.transactionId := row.transactionId
     req.storeType := Mux(addressHalf, STQStoreType.Addr, STQStoreType.Data)
     req.peId := logical.group.peId
     req.stid := logical.group.stid

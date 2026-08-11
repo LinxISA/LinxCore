@@ -148,6 +148,9 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     recipe.recipeKind === OooOpcodeRecipeKind.ScalarStore.U &&
     recipe.lateSplitKind === OooLateSplitKind.StoreAddressData.U &&
     recipe.sideEffectOwner === OooSideEffectOwner.Lsu.U
+  val compactStore = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_C_SDI,
+    FrontendOpcodeDecodeTable.OP_C_SWI)
   val loadPcr = opcodeIs(
     FrontendOpcodeDecodeTable.OP_LB_PCR,
     FrontendOpcodeDecodeTable.OP_LBU_PCR,
@@ -218,6 +221,7 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_HL_SHP,
     FrontendOpcodeDecodeTable.OP_HL_SHP_U)
   val wordLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_C_LWI,
     FrontendOpcodeDecodeTable.OP_LW,
     FrontendOpcodeDecodeTable.OP_LWI,
     FrontendOpcodeDecodeTable.OP_LWI_U,
@@ -227,6 +231,7 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_LWUI_U,
     FrontendOpcodeDecodeTable.OP_LWU_PCR)
   val wordStore = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_C_SWI,
     FrontendOpcodeDecodeTable.OP_SW,
     FrontendOpcodeDecodeTable.OP_SW_U,
     FrontendOpcodeDecodeTable.OP_SWI,
@@ -249,6 +254,7 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     FrontendOpcodeDecodeTable.OP_LWUI_U,
     FrontendOpcodeDecodeTable.OP_LWU_PCR)
   val signedNarrowLoad = opcodeIs(
+    FrontendOpcodeDecodeTable.OP_C_LWI,
     FrontendOpcodeDecodeTable.OP_LB,
     FrontendOpcodeDecodeTable.OP_LBI,
     FrontendOpcodeDecodeTable.OP_LB_PCR,
@@ -338,10 +344,11 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     Mux(pairStoreRegister, 12.U,
       Mux(storeRegister, 6.U,
         Mux(pairStore, 4.U,
-          Mux(scalarStore, 2.U,
-            Mux(loadRegister, 3.U, 1.U))))))
+          Mux(compactStore, 1.U,
+            Mux(scalarStore, 2.U,
+              Mux(loadRegister, 3.U, 1.U)))))))
   uop.memory.dataSourceMask := Mux(pairStore, 3.U,
-    Mux(scalarStore, 1.U, 0.U))
+    Mux(compactStore, 2.U, Mux(scalarStore, 1.U, 0.U)))
   uop.memory.writebackValid := storeWriteback
   uop.memory.writebackPreIndex := storeWritebackPreIndex
   uop.boundaryTargetValid := recipe.requiresTargetValidation && legacy.io.out.immValid

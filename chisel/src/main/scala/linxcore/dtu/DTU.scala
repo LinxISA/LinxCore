@@ -26,7 +26,7 @@ class DTU(val p: CoreParams) extends Module {
 
   io.commitIn.ready := true.B
   counters.io.traceAccepted := trace.io.accepted
-  counters.io.traceDropped := trace.io.dropped
+  counters.io.traceDropped := trace.io.dropped + io.traceOverflowDropped
   counters.io.commitObserved := io.commitIn.fire
   counters.io.commitCount := io.commitIn.bits.count
   counters.io.debugRequestAccepted := io.debugRequest.fire

@@ -15,7 +15,11 @@ GENERATE = ROOT / "tools" / "generate"
 sys.path.insert(0, str(GENERATE))
 sys.path.insert(0, str(ROOT / "src"))
 
-from opcode_catalog_lib import build_catalog, save_catalog  # noqa: E402
+from opcode_catalog_lib import (  # noqa: E402
+    build_catalog,
+    classify_major_minor,
+    save_catalog,
+)
 
 
 class OpcodeCatalogFormsTest(unittest.TestCase):
@@ -311,6 +315,81 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             "trandom",
         ):
             self.assertEqual(opcode_meta_forms_by_mnemonic(f"bstart_{retired}"), ())
+
+    def test_compact_memory_forms_route_through_lsu(self) -> None:
+        expected_categories = {
+            "c_lwi": "LOAD",
+            "c_ldi": "LOAD",
+            "c_swi": "STORE",
+            "c_sdi": "STORE",
+        }
+        for mnemonic, expected in expected_categories.items():
+            with self.subTest(mnemonic=mnemonic):
+                self.assertEqual(classify_major_minor(mnemonic)[0], expected)
+
+        catalog = json.loads(
+            (ROOT / "src" / "common" / "opcode_catalog.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        records = {
+            record["symbol"]: record
+            for record in catalog["records"]
+            if record["symbol"] in {
+                "OP_C_LWI", "OP_C_LDI", "OP_C_SWI", "OP_C_SDI"
+            }
+        }
+        self.assertEqual(len(records), 4)
+
+        for symbol in ("OP_C_LWI", "OP_C_LDI"):
+            record = records[symbol]
+            recipe = record["ooo"]
+            with self.subTest(symbol=symbol):
+                self.assertEqual(record["major_cat"], "LOAD")
+                self.assertEqual(recipe["recipe_kind"], "SCALAR_LOAD")
+                self.assertEqual(recipe["side_effect_owner"], "LSU")
+                self.assertEqual(recipe["dispatch_class"], "AGU")
+                self.assertEqual(recipe["memory_request_count"], 1)
+                self.assertEqual(recipe["p_source_count"], 1)
+                self.assertEqual(recipe["p_destination_count"], 0)
+                self.assertEqual(recipe["t_allocation_count"], 1)
+
+        for symbol in ("OP_C_SWI", "OP_C_SDI"):
+            record = records[symbol]
+            recipe = record["ooo"]
+            with self.subTest(symbol=symbol):
+                self.assertEqual(record["major_cat"], "STORE")
+                self.assertEqual(recipe["recipe_kind"], "SCALAR_STORE")
+                self.assertEqual(recipe["side_effect_owner"], "LSU")
+                self.assertEqual(recipe["dispatch_class"], "STD")
+                self.assertEqual(recipe["dispatch_demand"]["AGU"], 1)
+                self.assertEqual(recipe["dispatch_demand"]["STD"], 1)
+                self.assertEqual(recipe["memory_request_count"], 1)
+                self.assertEqual(recipe["p_source_count"], 2)
+                self.assertEqual(recipe["p_destination_count"], 0)
+
+        scala = (
+            ROOT
+            / "chisel"
+            / "src"
+            / "main"
+            / "scala"
+            / "linxcore"
+            / "frontend"
+            / "FrontendOpcodeDecodeTable.scala"
+        ).read_text(encoding="utf-8")
+        for symbol, is_load in (
+            ("OP_C_LWI", True),
+            ("OP_C_LDI", True),
+            ("OP_C_SWI", False),
+            ("OP_C_SDI", False),
+        ):
+            start = scala.index(f'Rule(symbol = "{symbol}"')
+            rule = scala[start : scala.index("\n", start)]
+            with self.subTest(frontend_symbol=symbol):
+                self.assertIn("dispatch = 4", rule)
+                self.assertIn(f"isLoad = {str(is_load).lower()}", rule)
+                self.assertIn(f"isStore = {str(not is_load).lower()}", rule)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ class OooIexTerminalRequest(val p: OooParams = OooParams()) extends Bundle {
   val opcode = UInt(p.opcodeWidth.W)
   val stid = UInt(p.stidWidth.W)
   val epoch = UInt(p.epochWidth.W)
+  val prediction = new OooPredictionRecord(p)
   val writebacks = Vec(p.maxDestinationOperands,
     new OooIexTerminalWriteback(p))
   val bctrl = new OooIexBctrlUpdate(p)
@@ -41,6 +42,8 @@ class OooIexTerminalBctrl(val p: OooParams = OooParams()) extends Bundle {
   val member = new RobMemberKey(p)
   val uopKey = new CanonicalUopKey(p)
   val opcode = UInt(p.opcodeWidth.W)
+  val transactionId = UInt(p.transactionIdWidth.W)
+  val prediction = new OooPredictionRecord(p)
   val update = new OooIexBctrlUpdate(p)
 }
 
@@ -475,6 +478,7 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
     request.opcode := execute.i2.row.opcode
     request.stid := execute.i2.row.stid
     request.epoch := execute.i2.row.epoch
+    request.prediction := execute.i2.row.primaryPrediction
     request
   }
 
@@ -652,6 +656,8 @@ class OooIexTerminalPublish(val core: CoreParams) extends Module {
   io.bctrl.bits.member := selected.bits.member
   io.bctrl.bits.uopKey := selected.bits.uopKey
   io.bctrl.bits.opcode := selected.bits.opcode
+  io.bctrl.bits.transactionId := selected.bits.transactionId
+  io.bctrl.bits.prediction := selected.bits.prediction
   io.bctrl.bits.update := selected.bits.bctrl
 
   for (index <- 0 until p.maxDestinationOperands) {

@@ -20,8 +20,14 @@ class OOOD3S1GraphIO(val p: CoreParams) extends Bundle {
     UInt(p.ooo.ridSlotWidth.W)))
   val ridTailGeneration = Output(Vec(p.ooo.stidCount,
     UInt(p.ridGenerationWidth.W)))
+  val ridAdmissionTailSlot = Output(Vec(p.ooo.stidCount,
+    UInt(p.ooo.ridSlotWidth.W)))
+  val ridAdmissionTailGeneration = Output(Vec(p.ooo.stidCount,
+    UInt(p.ridGenerationWidth.W)))
   val iex = new OOOIEXIO(p)
+  val storeResolve = Flipped(Decoupled(new RobResolveTxn(p)))
   val commit = Decoupled(new CommitTxn(p))
+  val storeCommit = Decoupled(new StoreCommitAuthorizationTxn(p))
   val trap = Decoupled(new TrapEvent(p))
   val interrupt = Flipped(Valid(new InterruptRequest(p)))
   val debugRequest = Flipped(Decoupled(new DebugRequest(p)))
@@ -52,6 +58,7 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   val recovery = Module(new RecoveryControl(p, recoveryTargetCount))
 
   val d2Stid = io.fromD2.bits.entries(0).uop.rob.stid
+  rob.io.storeBinding <> io.iex.storeBinding
   val earlyRecoveryValid = recovery.io.robPrepare.valid ||
     rob.io.recoveryPrepared.valid
   val earlyRecoveryStid = Mux(recovery.io.robPrepare.valid,
@@ -69,6 +76,17 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   memoryOrder.io.cancel := VecInit(Seq.fill(p.ooo.stidCount)(false.B))
   io.ridTailSlot := rob.io.ridTailSlot
   io.ridTailGeneration := rob.io.ridTailGeneration
+  for (stid <- 0 until p.ooo.stidCount) {
+    val admissionTail = rob.io.ridTailSlot(stid) +&
+      renu.io.reservedGroupCount(stid)
+    val admissionWrap = admissionTail >= p.ooo.robGroupsPerStid.U
+    io.ridAdmissionTailSlot(stid) := Mux(
+      admissionWrap,
+      (admissionTail - p.ooo.robGroupsPerStid.U)(p.ooo.ridSlotWidth - 1, 0),
+      admissionTail(p.ooo.ridSlotWidth - 1, 0))
+    io.ridAdmissionTailGeneration(stid) :=
+      rob.io.ridTailGeneration(stid) + admissionWrap.asUInt
+  }
 
   pcBuffer.io.prepare.valid := renu.io.candidate.valid
   pcBuffer.io.prepare.bits := renu.io.candidate.bits
@@ -275,29 +293,16 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   io.iex.pcBufferReadPcBase := pcBuffer.io.readPcBase
 
   val completionArb = Module(new Arbiter(
-    new RobResolveTxn(p), p.widths.issueWidth + 1))
+    new RobResolveTxn(p), p.widths.issueWidth + 2))
   val fastCompletion = completionArb.io.in(0)
-  io.iex.fastWriteback.valid := fastResult.io.out.valid &&
-    io.iex.fastWakeup.ready && fastCompletion.ready
-  io.iex.fastWriteback.bits := fastResult.io.out.bits
-  io.iex.fastWakeup.valid := fastResult.io.out.valid &&
-    io.iex.fastWriteback.ready && fastCompletion.ready
-  io.iex.fastWakeup.bits.rob := fastResult.io.out.bits.rob
-  io.iex.fastWakeup.bits.epoch := fastResult.io.out.bits.epoch
-  io.iex.fastWakeup.bits.destination := fastResult.io.out.bits.destination
-  fastCompletion.valid := fastResult.io.out.valid &&
-    io.iex.fastWriteback.ready && io.iex.fastWakeup.ready
-  fastCompletion.bits := 0.U.asTypeOf(fastCompletion.bits)
-  fastCompletion.bits.rob := fastResult.io.out.bits.rob
-  fastCompletion.bits.destinationValid := true.B
-  fastCompletion.bits.destinationIndex :=
-    fastResult.io.out.bits.destinationIndex
-  fastCompletion.bits.value := fastResult.io.out.bits.value
-  fastResult.io.out.ready := io.iex.fastWriteback.ready &&
-    io.iex.fastWakeup.ready && fastCompletion.ready
+  val fastPublish = Module(new OooFastResultAtomicPublish(p))
+  fastPublish.io.source <> fastResult.io.out
+  io.iex.fastResult <> fastPublish.io.iex
+  fastCompletion <> fastPublish.io.rob
   for (lane <- 0 until p.widths.issueWidth) {
     completionArb.io.in(lane + 1) <> io.iex.robResolve(lane)
   }
+  completionArb.io.in(p.widths.issueWidth + 1) <> io.storeResolve
   rob.io.completion <> completionArb.io.out
 
   commitControl.io.rob.valid := rob.io.commit.valid
@@ -347,9 +352,20 @@ class OOOD3S1Graph(val p: CoreParams) extends Module {
   io.trap.valid := commitControl.io.out.valid &&
     commitControl.io.out.bits.trap.valid
   io.trap.bits := commitControl.io.out.bits.trap
-  commitControl.io.out.ready :=
+  private val storeAuthorization = Module(
+    new OooStoreCommitAuthorizationOwner(p))
+  storeAuthorization.io.commit.valid := commitControl.io.out.valid
+  storeAuthorization.io.commit.bits := commitControl.io.out.bits.commit
+  io.storeCommit <> storeAuthorization.io.storeCommit
+  io.commit.valid := commitControl.io.out.valid &&
+    commitControl.io.out.bits.commit.count =/= 0.U &&
+    storeAuthorization.io.canAccept
+  io.trap.valid := commitControl.io.out.valid &&
+    commitControl.io.out.bits.trap.valid && storeAuthorization.io.canAccept
+  commitControl.io.out.ready := storeAuthorization.io.canAccept &&
     (!io.commit.valid || io.commit.ready) && (!io.trap.valid || io.trap.ready)
   val commitFire = commitControl.io.out.fire
+  storeAuthorization.io.applied := commitFire
   val releaseFire = OOOCommitApplyPolicy.releaseFire(
     commitFire, commitControl.io.out.bits.commit.count)
   rob.io.commit.ready := true.B

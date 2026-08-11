@@ -16,8 +16,9 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
     assert(iexLsu.storeReservation.length == p.lsu.storePipes)
     assert(iexLsu.storeReservation.head.bits
       .isInstanceOf[StoreReservationTxn])
+    assert(lsu.storeResolve.bits
+      .isInstanceOf[linxcore.top.interface.RobResolveTxn])
     assert(lsu.storeCommit.bits.isInstanceOf[StoreCommitAuthorizationTxn])
-    assert(lsu.storeClassify.bits.isInstanceOf[StoreMemoryClassifyTxn])
     assert(StoreMemoryClass.all.toSet == Set(
       StoreMemoryClass.NormalCacheable,
       StoreMemoryClass.NormalNonCacheable,
@@ -58,10 +59,9 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.iex.loadRepick.foreach(_.ready.poke(true.B))
       dut.io.iex.loadCancel.foreach(_.ready.poke(true.B))
       dut.io.iex.recoveryEvent.ready.poke(true.B)
+      dut.io.storeResolve.ready.poke(false.B)
       dut.io.storeCommit.valid.poke(false.B)
       dut.io.storeCommit.bits.poke(0.U.asTypeOf(dut.io.storeCommit.bits))
-      dut.io.storeClassify.valid.poke(false.B)
-      dut.io.storeClassify.bits.poke(0.U.asTypeOf(dut.io.storeClassify.bits))
       dut.io.loadReissueRequest.valid.poke(false.B)
       dut.io.loadReissueRequest.bits.poke(
         0.U.asTypeOf(dut.io.loadReissueRequest.bits))
@@ -104,6 +104,8 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       val reserve = dut.io.iex.storeReservation(0)
       reserve.bits.poke(0.U.asTypeOf(reserve.bits))
       reserve.bits.transactionId.poke(7.U)
+      reserve.bits.transaction.value.poke(1.U)
+      reserve.bits.transaction.generation.poke(1.U)
       pokeRob(reserve.bits.rob)
       reserve.bits.memoryOrder.requestCount.poke(1.U)
       reserve.bits.memoryOrder.firstLsid.poke(11.U)
@@ -143,20 +145,20 @@ class IEXLSUIntegrationSpec extends AnyFunSuite with ChiselSim {
       std.ready.expect(true.B)
       dut.clock.step()
       std.valid.poke(false.B)
-      dut.clock.step(2)
+      var resolveCycles = 0
+      while (!dut.io.storeResolve.valid.peek().litToBoolean &&
+          resolveCycles < 12) {
+        dut.clock.step()
+        resolveCycles += 1
+      }
 
-      val classify = dut.io.storeClassify
-      classify.bits.poke(0.U.asTypeOf(classify.bits))
-      pokeRob(classify.bits.rob)
-      classify.bits.logicalFirstLsid.poke(11.U)
-      classify.bits.logicalFirstStoreId.poke(13.U)
-      classify.bits.requestCount.poke(1.U)
-      classify.bits.beat.poke(0.U)
-      classify.bits.memoryClass.poke(StoreMemoryClass.NormalNonCacheable)
-      classify.valid.poke(true.B)
-      classify.ready.expect(true.B)
+      dut.io.storeResolve.valid.expect(true.B)
+      dut.io.storeResolve.bits.transactionId.expect(7.U)
+      dut.io.storeResolve.bits.rob.ridSlot.expect(2.U)
+      dut.io.storeResolve.bits.rob.memberIndex.expect(1.U)
+      dut.io.storeResolve.ready.poke(true.B)
       dut.clock.step()
-      classify.valid.poke(false.B)
+      dut.io.storeResolve.ready.poke(false.B)
 
       val storeMemory = dut.io.memoryRequest(p.lsu.loadPipes)
       storeMemory.ready.poke(false.B)

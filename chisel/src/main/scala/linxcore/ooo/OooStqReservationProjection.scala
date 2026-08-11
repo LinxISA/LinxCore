@@ -28,7 +28,8 @@ class OooStqReservationProjectionIO(
       memberIndexWidth = p.robMemberIndexWidth,
       residentGenerationWidth = p.residentGenerationWidth,
       leaseGenerationWidth = p.executeSlotGenerationWidth,
-      physicalStqEntries = stqEntries)))
+      physicalStqEntries = stqEntries,
+      transactionIdWidth = p.transactionIdWidth)))
   val rejected = Output(Bool())
 }
 
@@ -101,6 +102,7 @@ class OooStqReservationProjection(
     val fullLsid = io.input.memoryOrder.firstLsid + beat.U
     val fullStoreId = io.input.memoryOrder.firstTypeId + beat.U
     req := 0.U.asTypeOf(req)
+    req.transactionId := io.input.transactionId
     req.storeType := STQStoreType.All
     req.peId := io.input.peId
     req.stid := io.input.stid

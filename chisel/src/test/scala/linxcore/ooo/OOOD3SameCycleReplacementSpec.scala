@@ -18,8 +18,7 @@ class OOOD3SameCycleReplacementSpec extends AnyFunSuite with ChiselSim {
     dut.io.iex.storeDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.systemDispatch.foreach(_.ready.poke(true.B))
     dut.io.iex.cmdDispatch.foreach(_.ready.poke(true.B))
-    dut.io.iex.fastWriteback.ready.poke(true.B)
-    dut.io.iex.fastWakeup.ready.poke(true.B)
+    dut.io.iex.fastResult.ready.poke(true.B)
     dut.io.iex.pcBufferReadAddress.foreach(
       _.poke(0.U.asTypeOf(dut.io.iex.pcBufferReadAddress.head)))
     dut.io.iex.robNoflushReady.valid.poke(false.B)

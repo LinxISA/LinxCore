@@ -96,6 +96,8 @@ class D3PrefixLimit(val p: CoreParams) extends Bundle {
 class RenameCommitReleaseEntry(val p: CoreParams) extends Bundle {
   val valid = Bool()
   val rob = new RobIdentity(p)
+  /** Allocation epoch retained by T/U MapQ rows and exact release metadata. */
+  val epoch = UInt(p.epochWidth.W)
   val blockLast = Bool()
   val history = Vec(p.maxDestinationOperands, new D3RenameHistory(p))
 }
@@ -108,6 +110,8 @@ class RenameCommitReleaseTxn(val p: CoreParams) extends Bundle {
 class RENUD2D3IO(val p: CoreParams) extends Bundle {
   val fromD2 = Flipped(Decoupled(new D2AdmissionGroup(p)))
   val candidate = Output(Valid(new D3RenameGroup(p)))
+  val reservedGroupCount = Output(Vec(p.ooo.stidCount,
+    UInt(PrefixPacketContract.countWidth(p.ooo.d3PrefixWidth).W)))
   val prefixLimit = Input(Valid(new D3PrefixLimit(p)))
   val toD3 = Decoupled(new D3RenameGroup(p))
   val publicationIdentity = Input(Valid(new OOORobPrepared(p)))

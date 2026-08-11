@@ -391,18 +391,19 @@ class OooPcBuffer(val p: CoreParams = ParamProfiles.Default) extends Module {
   private val commitStid = Mux(commitStidInRange, commitFirstRob.stid, 0.U)
   private val sameStidCommitPreview = io.commitPreview.valid &&
     commitStidInRange && prepareStidInRange && commitStid === prepareStid
+  private val sameStidCommitApply = sameStidCommitPreview && io.commitApply
 
   io.prefixOffer.valid := io.prepare.valid && prepareCountExact &&
     prepareStidInRange && groupCountExact && laneShapeExact &&
     groupShapeExact && localOfferedGroupCount.orR &&
     localOfferedCount.orR && currentRowExact && !prepareRecoveryFence &&
-    !sameStidCommitPreview
+    !sameStidCommitApply
   io.prefixOffer.bits.count := localOfferedCount
   io.prefixOffer.bits.groupCount := localOfferedGroupCount
   io.prepareReady := io.prepare.valid && prepareCountExact &&
     prepareStidInRange && groupCountExact && laneShapeExact &&
     groupShapeExact && io.selectedLimit.valid && acceptedLanePrefixExact &&
-    currentRowExact && !prepareRecoveryFence && !sameStidCommitPreview
+    currentRowExact && !prepareRecoveryFence && !sameStidCommitApply
   io.prepared := 0.U.asTypeOf(io.prepared)
   io.prepared.count := acceptedCount
   io.prepared.groupCount := acceptedGroupCount

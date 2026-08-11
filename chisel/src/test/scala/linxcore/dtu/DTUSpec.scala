@@ -13,6 +13,7 @@ class DTUSpec extends AnyFunSuite with ChiselSim {
   private def clear(dut: DTU): Unit = {
     dut.io.traceIn.valid.poke(false.B)
     dut.io.traceIn.bits.poke(0.U.asTypeOf(dut.io.traceIn.bits))
+    dut.io.traceOverflowDropped.poke(0.U)
     dut.io.commitIn.valid.poke(false.B)
     dut.io.commitIn.bits.poke(0.U.asTypeOf(dut.io.commitIn.bits))
     dut.io.debugRequest.valid.poke(false.B)
@@ -42,9 +43,26 @@ class DTUSpec extends AnyFunSuite with ChiselSim {
       dut.io.traceOut.valid.expect(true.B)
       dut.io.traceOut.bits.entries(0).cycle.expect(11.U)
       dut.io.performanceCounters(PerformanceCounterIndex.TraceAccepted)
-        .expect(2.U)
+        .expect(1.U)
       dut.io.performanceCounters(PerformanceCounterIndex.TraceDropped)
         .expect(1.U)
+    }
+  }
+
+  test("trace event counters include explicit concurrent-source overflow") {
+    simulate(new DTU(p)) { dut =>
+      clear(dut)
+      dut.io.traceOut.ready.poke(true.B)
+      dut.io.traceIn.valid.poke(true.B)
+      dut.io.traceIn.bits.count.poke(4.U)
+      dut.io.traceOverflowDropped.poke(3.U)
+      dut.clock.step()
+      dut.io.traceIn.valid.poke(false.B)
+      dut.io.traceOverflowDropped.poke(0.U)
+      dut.io.performanceCounters(PerformanceCounterIndex.TraceAccepted)
+        .expect(4.U)
+      dut.io.performanceCounters(PerformanceCounterIndex.TraceDropped)
+        .expect(3.U)
     }
   }
 
@@ -99,7 +117,7 @@ class DTUSpec extends AnyFunSuite with ChiselSim {
   test("DTU IO exposes observations and requests but no recovery authority") {
     val io = new DTUIO(p)
     assert(io.elements.keySet == Set(
-      "traceIn", "commitIn", "debugRequest", "debugResponse",
+      "traceIn", "traceOverflowDropped", "commitIn", "debugRequest", "debugResponse",
       "controlRequest", "controlResponse", "traceOut",
       "performanceCounters"))
     assert(!io.elements.keySet.exists(_.toLowerCase.contains("recovery")))

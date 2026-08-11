@@ -265,6 +265,13 @@ class OooMemoryOrderUopAllocation(val p: OooParams = OooParams())
   val firstTypeId = UInt(p.lsidWidth.W)
   val before = new OooMemoryIdState(p)
   val after = new OooMemoryIdState(p)
+  // Preserve the complete public ordering boundary.  The type-local counters
+  // in `before` identify this uop's first load/store, but cannot reproduce
+  // invalid canonical payloads or the youngest older load identity exactly.
+  val yostSid = UInt(p.lsidWidth.W)
+  val yoldValid = Bool()
+  val yoldLsid = UInt(p.lsidWidth.W)
+  val yoldLid = UInt(p.lsidWidth.W)
 }
 
 /** All-or-none D3 memory-order lease retained until common S1 publication. */
@@ -966,6 +973,8 @@ class OooIexSourceState(val p: OooParams = OooParams()) extends Bundle {
   val ptagGeneration = UInt(p.pTagGenerationWidth.W)
   val localTag = UInt(p.localTagWidth.W)
   val localSequence = new OooLocalSeq(p)
+  /** Producer/allocation epoch for an exact T/U identity. */
+  val localEpoch = UInt(p.epochWidth.W)
   val load = new OooIexLoadGeneration(p)
 }
 

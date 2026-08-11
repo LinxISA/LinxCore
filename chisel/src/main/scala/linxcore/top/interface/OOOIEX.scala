@@ -18,6 +18,8 @@ class RenamedSource(val p: CoreParams) extends Bundle {
   val tSeqGeneration = UInt(p.ooo.localSeqGenerationWidth.W)
   val uSeqIndex = UInt(InterfaceWidth.index(p.ooo.tuMapQDepthPerStid).W)
   val uSeqGeneration = UInt(p.ooo.localSeqGenerationWidth.W)
+  /** Frontend epoch of the T/U allocation named by this source. */
+  val localEpoch = UInt(p.epochWidth.W)
   val ptagValid = Bool()
   val ttagValid = Bool()
   val utagValid = Bool()
@@ -135,6 +137,13 @@ class FastWakeupTxn(val p: CoreParams) extends Bundle {
   val destination = new RenamedDestination(p)
 }
 
+/** One atomic fast-result publication. IEX derives the wakeup from the exact
+  * writeback identity; OOO completes the ROB member on the same fire.
+  */
+class FastResultTxn(val p: CoreParams) extends Bundle {
+  val writeback = new FastWritebackTxn(p)
+}
+
 /** Exact ROB-head authorization for one resident system or CMD side effect. */
 class RobNoflushTxn(val p: CoreParams) extends Bundle {
   val transactionId = UInt(p.transactionIdWidth.W)
@@ -173,8 +182,9 @@ class OOOIEXIO(val p: CoreParams) extends Bundle {
   val allocationClear = Vec(
     p.ooo.d3PrefixWidth * p.maxDestinationOperands,
     Valid(new OperandAllocationClearTxn(p)))
-  val fastWriteback = Decoupled(new FastWritebackTxn(p))
-  val fastWakeup = Decoupled(new FastWakeupTxn(p))
+  val fastResult = Decoupled(new FastResultTxn(p))
+  val storeBinding = Flipped(Vec(p.iex.stdPipes,
+    Decoupled(new StoreTransactionBindingTxn(p))))
   val aluDispatch =
     Vec(p.iex.aluPipes, Decoupled(new DispatchTxn(p)))
   val bruDispatch =

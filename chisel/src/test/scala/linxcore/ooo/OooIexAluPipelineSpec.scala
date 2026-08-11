@@ -20,9 +20,9 @@ class OooIexAluPipelineSpec extends AnyFunSuite with ChiselSim {
     robRecoveryScanGroupsPerCycle = 2,
     robNonFlushScanGroupsPerCycle = 2,
     pcBufferEntries = 8,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
@@ -224,6 +224,115 @@ class OooIexAluPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.e1.valid.poke(false.B)
       dut.io.w1Bypass.bits.writebacks(0).data.expect(0x34.U)
+    }
+  }
+
+  test("accepts the exact c.sext.w shape emitted by the natural frontend") {
+    simulate(new OooIexAluPipeline(p)) { dut =>
+      clear(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      pokeExecute(dut, FrontendOpcodeDecodeTable.OP_C_SEXT_W,
+        ridSlot = 3, sources = Seq(BigInt("80000001", 16)),
+        destinationKind = DestinationKind.T)
+
+      dut.io.e1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.e1.valid.poke(false.B)
+      dut.io.w1Bypass.valid.expect(true.B)
+      dut.io.w1Bypass.bits.writebacks(0).data.expect(
+        BigInt("ffffffff80000001", 16).U)
+      dut.io.w1Bypass.bits.writebacks(0).destination.kind.expect(
+        DestinationKind.T)
+    }
+  }
+
+  test("computes-base-scalar-shifts") {
+    final case class ShiftCase(
+        opcode: Int,
+        sources: Seq[BigInt],
+        immediate: Option[BigInt],
+        expected: BigInt)
+
+    val cases = Seq(
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SLL,
+        Seq(0x11, 4), None, 0x110),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRL,
+        Seq(BigInt("8000000000000000", 16), 63), None, 1),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRA,
+        Seq(BigInt("8000000000000000", 16), 63), None,
+        BigInt("ffffffffffffffff", 16)),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SLLI,
+        Seq(3), Some(5), 0x60),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRLI,
+        Seq(BigInt("8000000000000000", 16)), Some(4),
+        BigInt("0800000000000000", 16)),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRAI,
+        Seq(BigInt("f000000000000000", 16)), Some(4),
+        BigInt("ff00000000000000", 16)),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SLLW,
+        Seq(BigInt("40000001", 16), 1), None,
+        BigInt("ffffffff80000002", 16)),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRLW,
+        Seq(BigInt("80000000", 16), 31), None, 1),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRAW,
+        Seq(BigInt("80000000", 16), 31), None,
+        BigInt("ffffffffffffffff", 16)),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SLLIW,
+        Seq(BigInt("40000001", 16)), Some(1),
+        BigInt("ffffffff80000002", 16)),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRLIW,
+        Seq(BigInt("80000000", 16)), Some(31), 1),
+      ShiftCase(FrontendOpcodeDecodeTable.OP_SRAIW,
+        Seq(BigInt("80000000", 16)), Some(31),
+        BigInt("ffffffffffffffff", 16)))
+
+    simulate(new OooIexAluPipeline(p)) { dut =>
+      cases.zipWithIndex.foreach { case (testCase, index) =>
+        clear(dut)
+        dut.reset.poke(true.B)
+        dut.clock.step()
+        dut.reset.poke(false.B)
+
+        pokeExecute(dut, testCase.opcode, ridSlot = index % 4,
+          sources = testCase.sources, immediate = testCase.immediate)
+        dut.io.e1.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.e1.valid.poke(false.B)
+        dut.io.w1Bypass.valid.expect(true.B)
+        dut.io.w1Bypass.bits.writebacks(0).data.expect(testCase.expected.U)
+      }
+    }
+  }
+
+  test("computes-normalized-load-immediates") {
+    val cases = Seq(
+      (FrontendOpcodeDecodeTable.OP_LUI,
+        BigInt("ffffffff80000000", 16)),
+      (FrontendOpcodeDecodeTable.OP_HL_LUI,
+        BigInt("ffffffff80000000", 16)),
+      (FrontendOpcodeDecodeTable.OP_HL_LIS,
+        BigInt("ffffffff80000000", 16)),
+      (FrontendOpcodeDecodeTable.OP_HL_LIU,
+        BigInt("0000000080000000", 16)))
+
+    simulate(new OooIexAluPipeline(p)) { dut =>
+      cases.zipWithIndex.foreach { case ((opcode, normalizedImmediate), index) =>
+        clear(dut)
+        dut.reset.poke(true.B)
+        dut.clock.step()
+        dut.reset.poke(false.B)
+
+        pokeExecute(dut, opcode, ridSlot = index,
+          sources = Seq.empty, immediate = Some(normalizedImmediate))
+        dut.io.e1.ready.expect(true.B)
+        dut.clock.step()
+        dut.io.e1.valid.poke(false.B)
+        dut.io.w1Bypass.valid.expect(true.B)
+        dut.io.w1Bypass.bits.writebacks(0).data.expect(normalizedImmediate.U)
+      }
     }
   }
 

@@ -24,7 +24,7 @@ class OooIexExecutionPipelineIO(
     profile.pickerFunctions.count(_.hasCapability(capability))
   val dispatch = Flipped(new OOODispatchChannels(core))
   val storeReserve = if (requireStoreReservation) Some(
-    Decoupled(new OooIexIssueRow(p))) else None
+    Vec(core.iex.stdPipes, Decoupled(new OooIexIssueRow(p)))) else None
   val recovery = Flipped(new RecoveryTargetIO(core))
   val issuePolicy = Input(new OooIexIssuePolicy(p))
   val stageCancels = Flipped(Vec(p.iexIssueDomainCount,
@@ -330,6 +330,10 @@ class OooIexExecutionPipeline(
   io.inFlightEntries := issue.io.inFlightEntries
   io.issueEmpty := issue.io.empty
   io.executionEmpty := execute.io.empty
+  dontTouch(io.residentEntries)
+  dontTouch(io.inFlightEntries)
+  dontTouch(io.issueEmpty)
+  dontTouch(io.executionEmpty)
   io.empty := !recoveryPending && issue.io.empty && execute.io.empty
   io.pProtocolError := issue.io.pProtocolError
   io.localProtocolError := issue.io.localProtocolError

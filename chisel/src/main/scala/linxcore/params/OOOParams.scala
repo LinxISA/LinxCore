@@ -10,6 +10,7 @@ final case class OOOParams(
     dispatchWidth: Int = 4,
     d3PrefixWidth: Int = 4,
     retireWidth: Int = 4,
+    storeCommitBufferEntries: Int = 64,
     robGroupsPerStid: Int = 64,
     robIdentityGroupsPerStid: Int = 64,
     maxInstructionsPerRobGroup: Int = 4,

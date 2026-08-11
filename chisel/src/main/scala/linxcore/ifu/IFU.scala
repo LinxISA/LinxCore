@@ -12,6 +12,7 @@ class IFU(val p: CoreParams) extends Module {
   io.toCtu <> iSide.io.toCtu
   io.memoryRequest <> iSide.io.memoryRequest
   iSide.io.memoryResponse <> io.memoryResponse
+  iSide.io.branchResolve <> io.branchResolve
 
   iSide.io.recovery.prepare <> io.recovery.prepare
   io.recovery.prepared <> iSide.io.recovery.prepared

@@ -159,6 +159,30 @@ class TURenameSequenceSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("relative-source-preserves-producer-epoch-across-consumer-epoch") {
+    simulate(new TURename(params(2))) { dut =>
+      clear(dut)
+      dut.io.prepare.bits.count.poke(1.U)
+      dut.io.prepare.bits.groupCount.poke(1.U)
+      pokeLocal(dut.io.prepare.bits, 0, id = 70, OperandKind.T, rid = 0)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepareReady.expect(true.B)
+      val producer = dut.io.prepared.peek()
+      publishPrepared(dut, producer)
+
+      dut.io.prepare.bits.poke(0.U.asTypeOf(dut.io.prepare.bits))
+      dut.io.prepare.bits.count.poke(1.U)
+      dut.io.prepare.bits.groupCount.poke(1.U)
+      pokeLocal(dut.io.prepare.bits, 0, id = 71, OperandKind.T,
+        relSrc = Some(0), destValid = false, rid = 1)
+      dut.io.prepare.bits.entries(0).uop.instruction.parent.identity.epoch
+        .poke(11.U)
+      dut.io.prepare.valid.poke(true.B)
+      dut.io.prepareReady.expect(true.B)
+      dut.io.prepared.entries(0).uop.sources(0).localEpoch.expect(3.U)
+    }
+  }
+
   test("physical T tags wrap at eight entries inside a 32-entry identity namespace") {
     val p = params(4)
     assert(p.ooo.tPhysRegs == 8)

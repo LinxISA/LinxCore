@@ -3,8 +3,10 @@ package linxcore.iex
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import chisel3.util.log2Ceil
+import linxcore.common.OperandClass
 import linxcore.ooo.{OooDispatchClass, OooIexDomainCapability, OooIexIssue,
   OooIexIssueIO, OooIexIssueSlotState, OooIexPhysicalProfile,
+  OooIexWakeupKind,
   OooLateSplitKind, OooOpcodeDisposition, OooOpcodeRecipeKind,
   OooSideEffectOwner, OooUopClass}
 import linxcore.params.SimulationParamProfiles
@@ -54,37 +56,34 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
 
   private def clearControls(dut: OooIexIssue): Unit = {
     clearDispatch(dut)
-    dut.io.storeReserve.ready.poke(true.B)
+    dut.io.storeReserve.foreach(_.ready.poke(true.B))
     dut.io.wakeup.foreach { wakeup =>
       wakeup.valid.poke(false.B)
-      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
     }
     dut.io.loadCancel.foreach { cancel =>
       cancel.valid.poke(false.B)
-      cancel.bits.poke(0.U.asTypeOf(cancel.bits))
+    }
+    dut.io.loadCancelRetries.flatten.foreach { retry =>
+      retry.valid.poke(false.B)
     }
     dut.io.releases.foreach { release =>
       release.valid.poke(false.B)
-      release.bits.poke(0.U.asTypeOf(release.bits))
     }
-    dut.io.queries.foreach(_.poke(0.U.asTypeOf(dut.io.queries.head)))
+    dut.io.queries.foreach { query =>
+      query.uopClass.poke(OooUopClass.Alu)
+      if (dut.p.iqBankCount > 1) query.bank.poke(0.U)
+      if (dut.p.iqEntriesPerBank > 1) query.entry.poke(0.U)
+    }
     dut.io.pickBankEnables.flatten.foreach(_.poke(0.U))
     dut.io.issuePolicy.poke(0.U.asTypeOf(dut.io.issuePolicy))
     dut.io.picks.foreach(_.ready.poke(false.B))
     dut.io.pickRetries.foreach { retry =>
       retry.valid.poke(false.B)
-      retry.bits.poke(0.U.asTypeOf(retry.bits))
     }
     dut.io.recovery.prepare.valid.poke(false.B)
-    dut.io.recovery.prepare.bits.poke(
-      0.U.asTypeOf(dut.io.recovery.prepare.bits))
     dut.io.recovery.prepared.ready.poke(true.B)
     dut.io.recovery.apply.valid.poke(false.B)
-    dut.io.recovery.apply.bits.poke(
-      0.U.asTypeOf(dut.io.recovery.apply.bits))
     dut.io.recovery.abort.valid.poke(false.B)
-    dut.io.recovery.abort.bits.poke(
-      0.U.asTypeOf(dut.io.recovery.abort.bits))
     dut.io.operandReadyBits.poke(
       0.U.asTypeOf(dut.io.operandReadyBits))
   }
@@ -229,7 +228,7 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
   }
 
   private def residentCount(dut: OooIexIssue, uopClass: Int): BigInt =
-    (0 until physical.iqBankCount).map { bank =>
+    (0 until dut.p.iqBankCount).map { bank =>
       dut.io.residentEntries(uopClass)(bank).peek().litValue
     }.sum
 
@@ -237,12 +236,12 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
       dut: OooIexIssue,
       uopClass: OooUopClass.Type): (Int, Int) = {
     for {
-      bank <- 0 until physical.iqBankCount
-      entry <- 0 until physical.iqEntriesPerBank
+      bank <- 0 until dut.p.iqBankCount
+      entry <- 0 until dut.p.iqEntriesPerBank
     } {
       dut.io.queries(0).uopClass.poke(uopClass)
-      dut.io.queries(0).bank.poke(bank.U)
-      dut.io.queries(0).entry.poke(entry.U)
+      if (dut.p.iqBankCount > 1) dut.io.queries(0).bank.poke(bank.U)
+      if (dut.p.iqEntriesPerBank > 1) dut.io.queries(0).entry.poke(entry.U)
       if (dut.io.queryStates(0).peek().litValue ==
           OooIexIssueSlotState.ResidentS3.asUInt.litValue)
         return (bank, entry)
@@ -255,12 +254,12 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
       uopClass: OooUopClass.Type,
       transactionId: BigInt): (Int, Int) = {
     for {
-      bank <- 0 until physical.iqBankCount
-      entry <- 0 until physical.iqEntriesPerBank
+      bank <- 0 until dut.p.iqBankCount
+      entry <- 0 until dut.p.iqEntriesPerBank
     } {
       dut.io.queries(0).uopClass.poke(uopClass)
-      dut.io.queries(0).bank.poke(bank.U)
-      dut.io.queries(0).entry.poke(entry.U)
+      if (dut.p.iqBankCount > 1) dut.io.queries(0).bank.poke(bank.U)
+      if (dut.p.iqEntriesPerBank > 1) dut.io.queries(0).entry.poke(entry.U)
       if (dut.io.queryStates(0).peek().litValue ==
           OooIexIssueSlotState.ResidentS3.asUInt.litValue &&
           dut.io.queryRows(0).transactionId.peek().litValue == transactionId)
@@ -311,6 +310,38 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("spills ALU admission into an eligible bank when the first bank is full") {
+    val compactCore = core.copy(
+      iex = core.iex.copy(scalarIssueEntries = 4, scalarIssueBanks = 2))
+    simulate(new OooIexIssue(compactCore)) { dut =>
+      clearControls(dut)
+      val channel = dut.io.dispatch.aluDispatch(0)
+      val aluClass = OooUopClass.Alu.asUInt.litValue.toInt
+
+      Seq(47, 48).foreach { transactionId =>
+        pokeDispatch(dut, channel.bits, transactionId,
+          uopClass = UopClass.Alu)
+        channel.valid.poke(true.B)
+        accept(channel, dut)
+      }
+      dut.io.residentEntries(aluClass)(0).expect(2.U)
+      dut.io.residentEntries(aluClass)(1).expect(0.U)
+
+      pokeDispatch(dut, channel.bits, transactionId = 49,
+        uopClass = UopClass.Alu)
+      channel.valid.poke(true.B)
+      channel.ready.expect(true.B)
+      dut.clock.step()
+      channel.valid.poke(false.B)
+      dut.clock.step(2)
+
+      dut.io.residentEntries(aluClass)(0).expect(2.U)
+      dut.io.residentEntries(aluClass)(1).expect(1.U)
+      findResidentByTransaction(dut, OooUopClass.Alu, 49)
+      dut.io.queryRows(0).reservation.bank.expect(1.U)
+    }
+  }
+
   test("allocates memory identity at IQ admission and shares it across STA and STD") {
     simulate(new OooIexIssue(core, requireStoreReservation = true)) { dut =>
       clearControls(dut)
@@ -340,14 +371,14 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
       channel.valid.poke(true.B)
 
       channel.ready.expect(true.B)
-      dut.io.storeReserve.valid.expect(true.B)
-      dut.io.storeReserve.bits.transactionId.expect(52.U)
-      dut.io.storeReserve.bits.reservation.uopClass.expect(OooUopClass.Agu)
-      dut.io.storeReserve.bits.memoryTransactionValid.expect(true.B)
-      dut.io.storeReserve.bits.memoryTransaction.value.expect(1.U)
-      dut.io.storeReserve.bits.memoryTransaction.generation.expect(0.U)
-      dut.io.storeReserve.bits.initialLoadAttemptValid.expect(false.B)
-      dut.io.storeReserve.bits.initialLoadAttemptGeneration.expect(0.U)
+      dut.io.storeReserve(1).valid.expect(true.B)
+      dut.io.storeReserve(1).bits.transactionId.expect(52.U)
+      dut.io.storeReserve(1).bits.reservation.uopClass.expect(OooUopClass.Agu)
+      dut.io.storeReserve(1).bits.memoryTransactionValid.expect(true.B)
+      dut.io.storeReserve(1).bits.memoryTransaction.value.expect(1.U)
+      dut.io.storeReserve(1).bits.memoryTransaction.generation.expect(0.U)
+      dut.io.storeReserve(1).bits.initialLoadAttemptValid.expect(false.B)
+      dut.io.storeReserve(1).bits.initialLoadAttemptGeneration.expect(0.U)
       dut.clock.step()
       channel.valid.poke(false.B)
       assert(residentCount(dut, OooUopClass.Agu.asUInt.litValue.toInt) == 1)
@@ -393,15 +424,15 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
     simulate(new OooIexIssue(compactCore)) { dut =>
       clearControls(dut)
       val channel = dut.io.dispatch.aluDispatch(0)
-      Seq(61, 62).foreach { transactionId =>
+      Seq(61, 62, 63, 64).foreach { transactionId =>
         pokeDispatch(dut, channel.bits, transactionId,
           uopClass = UopClass.Alu)
         channel.valid.poke(true.B)
         accept(channel, dut)
       }
-      assert(residentCount(dut, OooUopClass.Alu.asUInt.litValue.toInt) == 2)
+      assert(residentCount(dut, OooUopClass.Alu.asUInt.litValue.toInt) == 4)
 
-      pokeDispatch(dut, channel.bits, transactionId = 63,
+      pokeDispatch(dut, channel.bits, transactionId = 65,
         uopClass = UopClass.Alu)
       channel.valid.poke(true.B)
       val retainedPayload = channel.bits.peek().litValue
@@ -410,7 +441,7 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
 
       channel.ready.expect(false.B)
       assert(channel.bits.peek().litValue == retainedPayload)
-      assert(residentCount(dut, OooUopClass.Alu.asUInt.litValue.toInt) == 2)
+      assert(residentCount(dut, OooUopClass.Alu.asUInt.litValue.toInt) == 4)
     }
   }
 
@@ -429,6 +460,181 @@ class IEXPrivateIngressSpec extends AnyFunSuite with ChiselSim {
       dut.io.queryRows(0).sources(0).ptagGeneration.expect(9.U)
       dut.io.queryRows(0).sources(0).ready.expect(false.B)
       dut.io.queryPickables(0).expect(false.B)
+    }
+  }
+
+  test("load-canceled private stages return the exact in-flight IQ row") {
+    simulate(new OooIexIssue(core)) { dut =>
+      clearControls(dut)
+      dut.reset.poke(true.B)
+      dut.clock.step()
+      dut.reset.poke(false.B)
+
+      val channel = dut.io.dispatch.aluDispatch(0)
+      pokeDispatch(dut, channel.bits, transactionId = 740,
+        uopClass = UopClass.Alu)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+
+      val aluClass = OooUopClass.Alu.asUInt.litValue.toInt
+      val (bank, entry) = findResidentByTransaction(
+        dut, OooUopClass.Alu, 740)
+      val capability = OooIexDomainCapability.mask(
+        OooIexDomainCapability.SimpleAlu)
+      val domain = OooIexPhysicalProfile.fromCoreParams(core).transferConfigs
+        .zipWithIndex.collectFirst {
+          case (config, index)
+              if (config.classBankEnables(aluClass) & (1 << bank)) != 0 &&
+                (config.capabilities & capability) != 0 => index
+        }.get
+
+      dut.io.pickBankEnables(domain)(aluClass).poke((1 << bank).U)
+      dut.io.picks(domain).ready.poke(false.B)
+      var pickVisible = false
+      for (_ <- 0 until 4 if !pickVisible) {
+        pickVisible = dut.io.picks(domain).valid.peek().litToBoolean
+        if (!pickVisible) dut.clock.step()
+      }
+      assert(pickVisible)
+      dut.io.picks(domain).ready.poke(true.B)
+      dut.clock.step()
+      dut.io.picks(domain).ready.poke(false.B)
+
+      dut.io.queries(0).uopClass.poke(OooUopClass.Alu)
+      dut.io.queries(0).bank.poke(bank.U)
+      dut.io.queries(0).entry.poke(entry.U)
+      dut.io.queryRows(0).schedule.inFlight.expect(true.B)
+
+      val retry = dut.io.loadCancelRetries(domain)(1)
+      retry.bits.member.poke(dut.io.queryRows(0).member.peek())
+      retry.bits.reservation.poke(dut.io.queryRows(0).reservation.peek())
+      retry.valid.poke(true.B)
+      dut.clock.step()
+      retry.valid.poke(false.B)
+
+      dut.io.queryRows(0).schedule.inFlight.expect(false.B)
+      dut.io.queryStates(0).expect(OooIexIssueSlotState.ResidentS3)
+    }
+  }
+
+  test("accepts an exact PTag generation across frontend epochs") {
+    simulate(new OooIexIssue(core)) { dut =>
+      clearControls(dut)
+      val channel = dut.io.dispatch.aluDispatch(0)
+      pokeDispatch(dut, channel.bits, transactionId = 741,
+        uopClass = UopClass.Alu, sourceReady = false)
+      channel.bits.uop.decoded.instruction.parent.identity.epoch.poke(8.U)
+      dut.io.operandReadyBits.ptag(17).ready.poke(true.B)
+      // The committed physical mapping was created in epoch 7.  Generation
+      // 9 remains its exact reuse identity for a consumer in epoch 8.
+      dut.io.operandReadyBits.ptag(17).epoch.poke(7.U)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+
+      findResidentByTransaction(dut, OooUopClass.Alu, 741)
+      dut.io.queryRows(0).sources(0).ready.expect(true.B)
+    }
+  }
+
+  test("wakes-resident-p-source-across-frontend-epochs") {
+    simulate(new OooIexIssue(SimulationParamProfiles.W2)) { dut =>
+      clearControls(dut)
+      val channel = dut.io.dispatch.aluDispatch(0)
+      pokeDispatch(dut, channel.bits, transactionId = 742,
+        uopClass = UopClass.Alu, sourceReady = false)
+      channel.bits.uop.decoded.instruction.parent.identity.epoch.poke(8.U)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+
+      findResidentByTransaction(dut, OooUopClass.Alu, 742)
+      dut.io.queryRows(0).sources(0).ready.expect(false.B)
+
+      val wakeup = dut.io.wakeup(0)
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.kind.poke(OooIexWakeupKind.Committed)
+      wakeup.bits.stid.poke(0.U)
+      // A P mapping can be produced in an older frontend epoch.  Its
+      // generation, rather than that producer epoch, qualifies the wakeup.
+      wakeup.bits.epoch.poke(7.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(9.U)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+
+      dut.io.queryRows(0).sources(0).ready.expect(true.B)
+
+      pokeDispatch(dut, channel.bits, transactionId = 743,
+        uopClass = UopClass.Alu, sourceReady = false, ridSlot = 2)
+      channel.bits.uop.decoded.instruction.parent.identity.epoch.poke(9.U)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+      findResidentByTransaction(dut, OooUopClass.Alu, 743)
+      dut.io.queryRows(0).sources(0).specReady.expect(false.B)
+
+      wakeup.bits.poke(0.U.asTypeOf(wakeup.bits))
+      wakeup.bits.kind.poke(OooIexWakeupKind.SpeculativeLoad)
+      wakeup.bits.stid.poke(0.U)
+      wakeup.bits.epoch.poke(7.U)
+      wakeup.bits.operandClass.poke(OperandClass.P)
+      wakeup.bits.ptag.poke(17.U)
+      wakeup.bits.ptagGeneration.poke(9.U)
+      wakeup.bits.load.valid.poke(true.B)
+      wakeup.valid.poke(true.B)
+      dut.clock.step()
+      wakeup.valid.poke(false.B)
+
+      dut.io.queryRows(0).sources(0).specReady.expect(true.B)
+
+      pokeDispatch(dut, channel.bits, transactionId = 744,
+        uopClass = UopClass.Alu, sourceReady = false, ridSlot = 3)
+      channel.bits.uop.decoded.instruction.parent.identity.epoch.poke(10.U)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+      findResidentByTransaction(dut, OooUopClass.Alu, 744)
+      dut.io.queryRows(0).sources(0).ready.expect(false.B)
+
+      // A file write and row admission can cross the same edge after the
+      // one-cycle wakeup.  The resident row must converge from the exact
+      // generation-qualified readiness state instead of waiting forever for
+      // a second wakeup pulse.
+      dut.io.operandReadyBits.ptag(17).ready.poke(true.B)
+      dut.io.queryRows(0).sources(0).ready.expect(true.B)
+      dut.io.queryRows(0).sources(0).specReady.expect(false.B)
+      dut.clock.step()
+      dut.io.queryRows(0).sources(0).ready.expect(true.B)
+    }
+  }
+
+  test("accepts-exact-local-source-owner-epoch-across-frontend-epochs") {
+    simulate(new OooIexIssue(SimulationParamProfiles.W2)) { dut =>
+      clearControls(dut)
+      val channel = dut.io.dispatch.aluDispatch(0)
+      pokeDispatch(dut, channel.bits, transactionId = 745,
+        uopClass = UopClass.Alu, sourceReady = false)
+      channel.bits.uop.decoded.instruction.parent.identity.epoch.poke(11.U)
+      val source = channel.bits.uop.sources(0)
+      source.kind.poke(OperandKind.T)
+      source.ptagValid.poke(false.B)
+      source.ttagValid.poke(true.B)
+      source.ttag.poke(4.U)
+      source.tSeqIndex.poke(4.U)
+      source.tSeqGeneration.poke(0.U)
+      source.localEpoch.poke(9.U)
+      val ready = dut.io.operandReadyBits.ttag(0)(4)
+      ready.allocated.poke(true.B)
+      ready.ready.poke(true.B)
+      ready.epoch.poke(9.U)
+      ready.sequence.valid.poke(true.B)
+      ready.sequence.index.poke(4.U)
+      ready.sequence.generation.poke(0.U)
+      channel.valid.poke(true.B)
+      accept(channel, dut)
+
+      findResidentByTransaction(dut, OooUopClass.Alu, 745)
+      dut.io.queryRows(0).sources(0).localEpoch.expect(9.U)
+      dut.io.queryRows(0).sources(0).ready.expect(true.B)
     }
   }
 

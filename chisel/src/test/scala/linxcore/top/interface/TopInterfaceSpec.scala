@@ -93,6 +93,10 @@ class InterfaceDirectionProbe(val p: CoreParams) extends RawModule {
     ActualDirection.Output)
   require(DataMirror.directionOf(iex.cmdIssue.valid) == ActualDirection.Output)
   require(DataMirror.directionOf(iex.cmdIssue.ready) == ActualDirection.Input)
+  require(DataMirror.directionOf(iex.branchResolve.valid) ==
+    ActualDirection.Output)
+  require(DataMirror.directionOf(iex.branchResolve.ready) ==
+    ActualDirection.Input)
   require(DataMirror.directionOf(top.cmdIssue.valid) == ActualDirection.Output)
   require(DataMirror.directionOf(top.cmdIssue.ready) == ActualDirection.Input)
 }
@@ -335,8 +339,26 @@ class TopInterfaceSpec extends AnyFunSuite {
     checkTransition(issue.identity, issue.identity)
     checkTransition(reissue.currentIdentity, reissue.nextIdentity)
     checkTransition(repick.currentIdentity, repick.nextIdentity)
+    val expectedStructuralWaitFields = Set(
+      "valid", "storeIndex", "storeIdValid", "storeIdValue", "storeIdWrap",
+      "storeLsidValid", "storeLsidValue", "storeLsidWrap",
+      "storeLsidFullValid", "storeLsidFull", "pc")
+    assert(reissue.elements.keySet == Set(
+      "allocationId", "currentIdentity", "nextIdentity", "address",
+      "structural", "waitStore"))
     assert(repick.elements.keySet == Set(
-      "allocationId", "currentIdentity", "nextIdentity"))
+      "allocationId", "currentIdentity", "nextIdentity", "structural",
+      "waitStore"))
+    assert(reissue.waitStore.elements.keySet == expectedStructuralWaitFields)
+    assert(repick.waitStore.elements.keySet == expectedStructuralWaitFields)
+    Seq(reissue.waitStore, repick.waitStore).foreach { waitStore =>
+      assert(waitStore.storeIndex.getWidth ==
+        InterfaceWidth.index(p.lsu.storeQueueEntries))
+      assert(waitStore.storeIdValue.getWidth == p.ooo.ridSlotWidth)
+      assert(waitStore.storeLsidValue.getWidth == p.ooo.ridSlotWidth)
+      assert(waitStore.storeLsidFull.getWidth == p.lsidWidth)
+      assert(waitStore.pc.getWidth == p.pcWidth)
+    }
     assert(repick.allocationId.value.getWidth == 41)
     assert(repick.allocationId.generation.getWidth == 11)
     assert(reissue.address.getWidth == p.physicalAddressWidth)
@@ -458,6 +480,9 @@ class TopInterfaceSpec extends AnyFunSuite {
     assert(iex.lsu.loadAddress.head.bits.getClass ==
       lsu.iex.loadAddress.head.bits.getClass)
     assert(iex.cmdIssue.bits.getClass == top.cmdIssue.bits.getClass)
+    assert(ooo.storeCommit.bits.getClass == lsu.storeCommit.bits.getClass)
+    assert(!top.elements.contains("storeCommit"))
+    assert(!top.elements.contains("storeClassify"))
 
     Seq(
       ifu.recovery,

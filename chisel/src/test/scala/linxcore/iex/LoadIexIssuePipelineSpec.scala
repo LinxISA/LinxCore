@@ -267,6 +267,36 @@ class LoadIexIssuePipelineSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("maps a compact-load T destination into the canonical LIQ identity") {
+    val identityCore = core.copy(robEntries = math.max(
+      p.robIdentityGroupsPerStid, 1 << (p.nativeBidWidth - 1)))
+    simulate(new LoadIexIssuePipeline(p, identityCore)) { dut =>
+      clear(dut)
+      pokeRequest(dut, lane = 0, ridSlot = 2, nativeBid = 4,
+        firstLsid = 7, firstLoadId = 5, storeTail = 0)
+      val row = dut.io.agu(0).bits.execute.i2.row
+      row.schedule.destinations(0).kind.poke(DestinationKind.T)
+      row.schedule.destinations(0).atag.poke(31.U)
+      row.schedule.destinations(0).relativeIndex.poke(2.U)
+      row.schedule.destinations(0).localTag.poke(3.U)
+      row.schedule.destinations(0).localSequence.valid.poke(true.B)
+      row.schedule.destinations(0).localSequence.index.poke(9.U)
+      row.schedule.destinations(0).localSequence.generation.poke(4.U)
+      row.payload.previousPDestinations(0).valid.poke(false.B)
+      dut.io.agu(0).bits.destination.poke(
+        row.schedule.destinations(0).peek())
+      dut.io.alloc.ready.poke(true.B)
+
+      dut.io.alloc.valid.expect(true.B)
+      dut.io.agu(0).ready.expect(true.B)
+      dut.io.alloc.bits.dst.kind.expect(DestinationKind.T)
+      dut.io.alloc.bits.dst.archTag.expect(31.U)
+      dut.io.alloc.bits.dst.relTag.expect(2.U)
+      dut.io.alloc.bits.dst.physTag.expect(3.U)
+      dut.io.alloc.bits.dst.oldPhysTag.expect(0.U)
+    }
+  }
+
   test("rejects a load without the retained IEX transaction or initial attempt") {
     simulate(new LoadIexIssuePipeline(p, core)) { dut =>
       clear(dut)

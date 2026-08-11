@@ -11,7 +11,7 @@ import linxcore.recovery.{ExecEngineType, FlushType}
 import linxcore.top.interface.{LSUIO, OperandKind, RecoveryPhase,
   MemoryAccessKind, MemoryCommand, RecoveryCause, RecoveryPlan,
   RecoveryPlanContract, StoreMemoryClass, LSUMemoryFaultCause,
-  LSUMaintenanceCommand, MemorySize}
+  LSUMaintenanceCommand, MemorySize, StoreMemoryClassifyTxn}
 
 /** Public state-free composition boundary for the canonical LSU graph.
   *
@@ -34,6 +34,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   private val stqEntries = scalarLsu.stqEntries
 
   private val store = Module(new OooIexStoreStqFabric(p, stqEntries))
+  io.storeResolve <> store.io.completion
   private val backend = Module(new STQSCBCommitBackend(
     entries = stqEntries,
     queueEntries = scalarLsu.commitQueueEntries,
@@ -64,6 +65,16 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     stqForwardRobEntries = op.robIdentityGroupsPerStid,
     stqForwardTokenWidth = op.transactionIdWidth,
     useExternalLaunchPermit = true))
+  private val structuralBlock = Module(new LoadStructuralBlockPolicy(
+    robEntries = op.robIdentityGroupsPerStid,
+    liqEntries = scalarLsu.liqEntries,
+    stqEntries = stqEntries,
+    addrWidth = scalarLsu.addrWidth,
+    stidWidth = op.stidWidth,
+    pcWidth = scalarLsu.pcWidth,
+    lineBytes = scalarLsu.lineBytes,
+    lsidWidth = op.lsidWidth,
+    tokenWidth = op.transactionIdWidth))
   private val translation = Module(new DSideTranslation(
     p = p,
     entries = p.lsu.dTranslationEntries,
@@ -199,22 +210,24 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     out
   }
 
-  val reservation = io.iex.storeReservation.head
-  val reservationIdentity = Wire(new linxcore.top.interface.MemoryIdentity(p))
-  reservationIdentity := 0.U.asTypeOf(reservationIdentity)
-  reservationIdentity.rob := reservation.bits.rob
-  reservationIdentity.transaction.value := reservation.bits.transactionId
-  reservationIdentity.lsid := reservation.bits.memoryOrder.firstLsid
-  val reserveRow = Wire(new OooIexIssueRow(op))
-  projectCommonRow(reserveRow, reservationIdentity,
-    reservation.bits.memoryOrder, reservation.bits.requestCount,
-    reservation.bits.pair, 0)
-  reserveRow.schedule.transactionId := reservation.bits.transactionId
-  reserveRow.payload.memory.accessBytes := reservation.bits.sizeBytes
-  store.io.reserve.valid := reservation.valid && !operationFenced
-  store.io.reserve.bits := reserveRow
-  reservation.ready := !operationFenced && store.io.reserve.ready
-  io.iex.storeReservation.tail.foreach(_.ready := false.B)
+  for (lane <- io.iex.storeReservation.indices) {
+    val reservation = io.iex.storeReservation(lane)
+    val reservationIdentity = Wire(
+      new linxcore.top.interface.MemoryIdentity(p))
+    reservationIdentity := 0.U.asTypeOf(reservationIdentity)
+    reservationIdentity.rob := reservation.bits.rob
+    reservationIdentity.transaction := reservation.bits.transaction
+    reservationIdentity.lsid := reservation.bits.memoryOrder.firstLsid
+    val reserveRow = Wire(new OooIexIssueRow(op))
+    projectCommonRow(reserveRow, reservationIdentity,
+      reservation.bits.memoryOrder, reservation.bits.requestCount,
+      reservation.bits.pair, 0)
+    reserveRow.schedule.transactionId := reservation.bits.transactionId
+    reserveRow.payload.memory.accessBytes := reservation.bits.sizeBytes
+    store.io.reserve(lane).valid := reservation.valid && !operationFenced
+    store.io.reserve(lane).bits := reserveRow
+    reservation.ready := !operationFenced && store.io.reserve(lane).ready
+  }
 
   val storeTranslationSelected = Wire(Vec(p.lsu.storePipes, Bool()))
   val storeTranslationReady = Wire(Bool())
@@ -346,13 +359,17 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   backend.io.robStoreCommit.bits.logicalRequestCount :=
     io.storeCommit.bits.requestCount
   backend.io.robStoreCommit.bits.logicalBeat := io.storeCommit.bits.beat
+  backend.io.robStoreCommit.bits.transactionValue :=
+    io.storeCommit.bits.transaction.value
+  backend.io.robStoreCommit.bits.transactionGeneration :=
+    io.storeCommit.bits.transaction.generation
   projectExactOwner(backend.io.robStoreCommit.bits.exactOwner,
     io.storeCommit.bits.rob)
   io.storeCommit.ready := backend.io.robStoreCommit.ready
 
   val classifyMatches = Wire(Vec(stqEntries, Bool()))
   val derivedStoreClass = Module(new Queue(
-    chiselTypeOf(io.storeClassify.bits), stqEntries, flow = false,
+    new StoreMemoryClassifyTxn(p), stqEntries, flow = false,
     pipe = false))
   derivedStoreClassEmpty := derivedStoreClass.io.count === 0.U
   val derivedStoreAddress = storeTranslationTxn
@@ -379,7 +396,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   }
   for (index <- 0 until stqEntries) {
     val row = store.io.rows(index)
-    val source = io.storeClassify.bits
+    val source = derivedStoreClass.io.deq.bits
     classifyMatches(index) := row.valid && row.exactOwner.valid &&
       row.exactOwner.peId === source.rob.peId &&
       row.exactOwner.stid === source.rob.stid &&
@@ -396,26 +413,17 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   }
   val classifyUnique = PopCount(classifyMatches) === 1.U
   val classifyIndex = PriorityEncoder(classifyMatches)
-  val derivedClassMatchesPublic =
-    derivedStoreClass.io.deq.bits.rob.asUInt ===
-      io.storeClassify.bits.rob.asUInt &&
-    derivedStoreClass.io.deq.bits.logicalFirstLsid ===
-      io.storeClassify.bits.logicalFirstLsid &&
-    derivedStoreClass.io.deq.bits.logicalFirstStoreId ===
-      io.storeClassify.bits.logicalFirstStoreId &&
-    derivedStoreClass.io.deq.bits.requestCount ===
-      io.storeClassify.bits.requestCount &&
-    derivedStoreClass.io.deq.bits.beat === io.storeClassify.bits.beat
-  backend.io.memoryClassify.valid := io.storeClassify.valid && classifyUnique &&
-    derivedStoreClass.io.deq.valid && derivedClassMatchesPublic
+  backend.io.memoryClassify.valid := derivedStoreClass.io.deq.valid &&
+    classifyUnique
   backend.io.memoryClassify.bits := 0.U.asTypeOf(backend.io.memoryClassify.bits)
   backend.io.memoryClassify.bits.lease.valid := classifyUnique
   backend.io.memoryClassify.bits.lease.index := classifyIndex
   backend.io.memoryClassify.bits.lease.generation :=
     store.io.rows(classifyIndex).leaseGeneration
   projectExactOwner(backend.io.memoryClassify.bits.exactOwner,
-    io.storeClassify.bits.rob)
-  backend.io.memoryClassify.bits.logicalBeat := io.storeClassify.bits.beat
+    derivedStoreClass.io.deq.bits.rob)
+  backend.io.memoryClassify.bits.logicalBeat :=
+    derivedStoreClass.io.deq.bits.beat
   backend.io.memoryClassify.bits.memoryClass := MuxLookup(
     derivedStoreClass.io.deq.bits.memoryClass.asUInt,
     STQMemoryClass.Fault)(Seq(
@@ -423,10 +431,8 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
       StoreMemoryClass.NormalNonCacheable.asUInt -> STQMemoryClass.NormalNonCacheable,
       StoreMemoryClass.Device.asUInt -> STQMemoryClass.DeviceMmio,
       StoreMemoryClass.Fault.asUInt -> STQMemoryClass.Fault))
-  io.storeClassify.ready := classifyUnique &&
-    derivedStoreClass.io.deq.valid && derivedClassMatchesPublic &&
+  derivedStoreClass.io.deq.ready := classifyUnique &&
     backend.io.memoryClassify.ready
-  derivedStoreClass.io.deq.ready := io.storeClassify.fire
 
   // Canonical committed-store transport occupies the store lanes immediately
   // after the load lanes: serialized writes first, cache ownership second.
@@ -508,7 +514,18 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   load.launchPermit.get := !operationFenced
   load.stqForward.get.queries <> store.io.loadForwardQuery
   load.stqForward.get.responses <> store.io.loadForwardResponse
-  load.stqForward.get.hardBlock.ready := true.B
+  structuralBlock.io.hardBlock <> load.stqForward.get.hardBlock
+  structuralBlock.io.hardFlush := false.B
+  structuralBlock.io.recoveryFire := loadRecoveryApply
+  private val structuralRecoveryMatches = VecInit(
+    load.io.liqRows.zipWithIndex.map { case (row, index) =>
+      row.valid && structuralBlock.io.loadId.valid &&
+        LoadCanonicalRowIdentity.equal(
+          structuralBlock.io.loadId,
+          LoadCanonicalRowIdentity.fromRobId(row.loadId)) &&
+        load.io.liqFlushPruneMask(index)
+    })
+  structuralBlock.io.recoveryKill := structuralRecoveryMatches.asUInt.orR
   for (index <- 0 until stqEntries) {
     load.mdbStore.rows(index) := 0.U.asTypeOf(load.mdbStore.rows(index))
     load.mdbStore.rows(index).valid := store.io.rows(index).valid
@@ -623,11 +640,22 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   load.io.alloc.size := loadIssue.bits.sizeBytes
   load.io.alloc.returnSignExtend := loadIssue.bits.signed
   load.io.alloc.dst.valid := loadIssue.bits.destination.valid
-  load.io.alloc.dst.kind := DestinationKind.Gpr
+  load.io.alloc.dst.kind := Mux(
+    loadIssue.bits.destination.kind === OperandKind.Gpr,
+    DestinationKind.Gpr,
+    Mux(loadIssue.bits.destination.kind === OperandKind.T,
+      DestinationKind.T, DestinationKind.U))
   load.io.alloc.dst.archTag := loadIssue.bits.destination.atag
   load.io.alloc.dst.relTag := loadIssue.bits.destinationRelativeIndex
-  load.io.alloc.dst.physTag := loadIssue.bits.destination.ptag
-  load.io.alloc.dst.oldPhysTag := loadIssue.bits.destination.previousPtag
+  load.io.alloc.dst.physTag := Mux(
+    loadIssue.bits.destination.kind === OperandKind.Gpr,
+    loadIssue.bits.destination.ptag,
+    Mux(loadIssue.bits.destination.kind === OperandKind.T,
+      loadIssue.bits.destination.ttag, loadIssue.bits.destination.utag))
+  load.io.alloc.dst.oldPhysTag := Mux(
+    loadIssue.bits.destination.kind === OperandKind.Gpr,
+    loadIssue.bits.destination.previousPtag,
+    0.U)
   projectRobId(load.io.alloc.youngestStoreId,
     loadIssue.bits.youngestStoreId, loadIssue.bits.youngestStoreValid)
   projectRobId(load.io.alloc.youngestStoreLsId,
@@ -745,12 +773,32 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     result.bits.allocationId.generation := completion.payload.loadId.generation
     result.bits.data := completion.payload.data
     result.bits.destination.valid := completion.payload.dst.valid
-    result.bits.destination.kind := OperandKind.Gpr
+    result.bits.destination.kind := Mux(
+      completion.payload.dst.kind === DestinationKind.Gpr,
+      OperandKind.Gpr,
+      Mux(completion.payload.dst.kind === DestinationKind.T,
+        OperandKind.T, OperandKind.U))
     result.bits.destination.atag := completion.payload.dst.archTag
-    result.bits.destination.ptag := completion.payload.dst.physTag
-    result.bits.destination.previousPtag := completion.payload.dst.oldPhysTag
-    result.bits.destination.previousPtagValid := completion.payload.dst.valid
-    result.bits.destination.ptagValid := completion.payload.dst.valid
+    result.bits.destination.ptag := Mux(
+      completion.payload.dst.kind === DestinationKind.Gpr,
+      completion.payload.dst.physTag, 0.U)
+    result.bits.destination.previousPtag := Mux(
+      completion.payload.dst.kind === DestinationKind.Gpr,
+      completion.payload.dst.oldPhysTag, 0.U)
+    result.bits.destination.previousPtagValid := completion.payload.dst.valid &&
+      completion.payload.dst.kind === DestinationKind.Gpr
+    result.bits.destination.ptagValid := completion.payload.dst.valid &&
+      completion.payload.dst.kind === DestinationKind.Gpr
+    result.bits.destination.ttag := Mux(
+      completion.payload.dst.kind === DestinationKind.T,
+      completion.payload.dst.physTag, 0.U)
+    result.bits.destination.ttagValid := completion.payload.dst.valid &&
+      completion.payload.dst.kind === DestinationKind.T
+    result.bits.destination.utag := Mux(
+      completion.payload.dst.kind === DestinationKind.U,
+      completion.payload.dst.physTag, 0.U)
+    result.bits.destination.utagValid := completion.payload.dst.valid &&
+      completion.payload.dst.kind === DestinationKind.U
     result.bits.destinationRelativeIndex := completion.payload.dst.relTag
     result.bits.trap.valid := completion.payload.faultValid
     result.bits.trap.cause := completion.payload.faultCause
@@ -846,8 +894,6 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   val selectedCancelReady = Mux1H(
     UIntToOH(rebindArbiter.io.chosen, p.lsu.loadPipes),
     io.iex.loadCancel.map(_.ready))
-  load.io.attemptRebindValid := rebindApply.valid && selectedCancelReady
-  rebindApply.ready := selectedCancelReady && load.io.attemptRebindReady
   load.io.attemptRebind := 0.U.asTypeOf(load.io.attemptRebind)
   projectRobId(load.io.attemptRebind.loadId,
     rebindApply.bits.allocationId.value)
@@ -875,8 +921,49 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     rebindApply.bits.currentIdentity)
   projectAttempt(load.io.attemptRebind.next,
     rebindApply.bits.nextIdentity)
-  load.io.structuralRetryValid := false.B
+  val structuralRebind = rebindApply.bits.structural
+  load.io.structuralRetryValid := rebindApply.valid && selectedCancelReady &&
+    structuralRebind
   load.io.structuralRetry := 0.U.asTypeOf(load.io.structuralRetry)
+  load.io.structuralRetry.loadId.valid := true.B
+  load.io.structuralRetry.loadId.slot :=
+    rebindApply.bits.allocationId.value
+  load.io.structuralRetry.loadId.generation :=
+    rebindApply.bits.allocationId.generation
+  projectAttempt(load.io.structuralRetry.current,
+    rebindApply.bits.currentIdentity)
+  projectAttempt(load.io.structuralRetry.next,
+    rebindApply.bits.nextIdentity)
+  load.io.structuralRetry.returnPipeIndex :=
+    rebindApply.bits.currentIdentity.pipeId
+  load.io.structuralRetry.waitStore := rebindApply.bits.waitStore.valid
+  load.io.structuralRetry.waitStoreInfo.valid :=
+    rebindApply.bits.waitStore.valid
+  load.io.structuralRetry.waitStoreInfo.storeIndex :=
+    rebindApply.bits.waitStore.storeIndex
+  load.io.structuralRetry.waitStoreInfo.storeId.valid :=
+    rebindApply.bits.waitStore.storeIdValid
+  load.io.structuralRetry.waitStoreInfo.storeId.value :=
+    rebindApply.bits.waitStore.storeIdValue
+  load.io.structuralRetry.waitStoreInfo.storeId.wrap :=
+    rebindApply.bits.waitStore.storeIdWrap
+  load.io.structuralRetry.waitStoreInfo.storeLsId.valid :=
+    rebindApply.bits.waitStore.storeLsidValid
+  load.io.structuralRetry.waitStoreInfo.storeLsId.value :=
+    rebindApply.bits.waitStore.storeLsidValue
+  load.io.structuralRetry.waitStoreInfo.storeLsId.wrap :=
+    rebindApply.bits.waitStore.storeLsidWrap
+  load.io.structuralRetry.waitStoreInfo.storeLsIdFullValid :=
+    rebindApply.bits.waitStore.storeLsidFullValid
+  load.io.structuralRetry.waitStoreInfo.storeLsIdFull :=
+    rebindApply.bits.waitStore.storeLsidFull
+  load.io.structuralRetry.waitStoreInfo.pc := rebindApply.bits.waitStore.pc
+  val selectedMutationReady = Mux(
+    structuralRebind, load.io.structuralRetryReady,
+    load.io.attemptRebindReady)
+  load.io.attemptRebindValid := rebindApply.valid && selectedCancelReady &&
+    !structuralRebind
+  rebindApply.ready := selectedCancelReady && selectedMutationReady
   val repickIndex = PriorityEncoder(load.io.liqRepickMask)
   val repickRow = load.io.liqRows(repickIndex)
   load.io.pickValid := false.B
@@ -947,8 +1034,9 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     publicLoadResponse.bits.identity.generation(0)
   load.io.missResponse.lineAddr := publicLoadResponse.bits.address
   load.io.missResponse.isRead := true.B
-  load.io.missResponse.data := Fill(
-    scalarLsu.lineBytes / (p.dataWidth / 8), publicLoadResponse.bits.data)
+  val refillLineData = Module(new LSURefillLineData(p))
+  refillLineData.io.response := publicLoadResponse.bits
+  load.io.missResponse.data := refillLineData.io.lineData
   load.io.missResponse.l2Miss := publicLoadResponse.bits.denied ||
     publicLoadResponse.bits.corrupt
   load.io.resolveRetireValid := load.io.loadReturn.completionCandidateValid &&
@@ -961,48 +1049,95 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
   load.recovery.ready := io.iex.recoveryEvent.ready
   for (lane <- 0 until p.lsu.loadPipes) {
     val repick = io.iex.loadRepick(lane)
-    repick.valid := load.io.liqRepickMask.orR &&
+    val structuralForLane = structuralBlock.io.retry.valid &&
+      structuralBlock.io.retry.bits.returnPipeIndex === lane.U
+    val ordinaryForLane = load.io.liqRepickMask.orR &&
       repickRow.returnPipeIndex === lane.U
+    repick.valid := structuralForLane || ordinaryForLane
     repick.bits := 0.U.asTypeOf(repick.bits)
-    repick.bits.allocationId.value := repickRow.loadId.value
-    repick.bits.allocationId.generation := repickRow.loadId.wrap.asUInt
-    repick.bits.currentIdentity.rob.peId := repickRow.peId
-    repick.bits.currentIdentity.rob.stid := repickRow.stid
+    val structuralIndex = structuralBlock.io.retry.bits.loadId.slot(
+      log2Ceil(scalarLsu.liqEntries) - 1, 0)
+    val structuralRow = load.io.liqRows(structuralIndex)
+    val selectedRow = Mux(structuralForLane, structuralRow, repickRow)
+    val selectedLoadId = Mux(structuralForLane,
+      structuralBlock.io.retry.bits.loadId,
+      LoadCanonicalRowIdentity.fromRobId(repickRow.loadId))
+    val selectedCurrentAttempt = Mux(structuralForLane,
+      structuralBlock.io.retry.bits.current, repickRow.attempt)
+    val ordinaryNextAttempt = Wire(chiselTypeOf(repickRow.attempt))
+    ordinaryNextAttempt := repickRow.attempt
+    ordinaryNextAttempt.generation := repickRow.attempt.generation +% 1.U
+    val selectedNextAttempt = Mux(structuralForLane,
+      structuralBlock.io.retry.bits.next,
+      ordinaryNextAttempt)
+    repick.bits.allocationId.value := selectedLoadId.slot
+    repick.bits.allocationId.generation := selectedLoadId.generation
+    repick.bits.currentIdentity.rob.peId := selectedCurrentAttempt.producer.peId
+    repick.bits.currentIdentity.rob.stid := selectedCurrentAttempt.producer.stid
     repick.bits.currentIdentity.rob.ridSlot :=
-      repickRow.attempt.producer.ridSlot
+      selectedCurrentAttempt.producer.ridSlot
     repick.bits.currentIdentity.rob.ridGeneration :=
-      repickRow.attempt.producer.ridGeneration
+      selectedCurrentAttempt.producer.ridGeneration
     repick.bits.currentIdentity.rob.memberIndex :=
-      repickRow.attempt.producer.memberIndex
+      selectedCurrentAttempt.producer.memberIndex
     repick.bits.currentIdentity.rob.residentGeneration :=
-      repickRow.attempt.producer.residentGeneration
+      selectedCurrentAttempt.producer.residentGeneration
     repick.bits.currentIdentity.rob.bid :=
-      repickRow.attempt.producer.nativeBid
+      selectedCurrentAttempt.producer.nativeBid
     repick.bits.currentIdentity.rob.brobGeneration :=
-      repickRow.attempt.producer.brobGeneration
-    repick.bits.currentIdentity.lsid := repickRow.loadLsIdFull
+      selectedCurrentAttempt.producer.brobGeneration
+    repick.bits.currentIdentity.lsid := selectedRow.loadLsIdFull
     repick.bits.currentIdentity.transaction.value :=
-      repickRow.attempt.transactionValue
+      selectedCurrentAttempt.transactionValue
     repick.bits.currentIdentity.transaction.generation :=
-      repickRow.attempt.transactionGeneration
+      selectedCurrentAttempt.transactionGeneration
     repick.bits.currentIdentity.attemptGeneration :=
-      repickRow.attempt.generation
-    repick.bits.currentIdentity.pipeId := repickRow.returnPipeIndex
+      selectedCurrentAttempt.generation
+    repick.bits.currentIdentity.pipeId := selectedRow.returnPipeIndex
     repick.bits.nextIdentity := repick.bits.currentIdentity
     repick.bits.nextIdentity.attemptGeneration :=
-      repickRow.attempt.generation + 1.U
+      selectedNextAttempt.generation
+    repick.bits.structural := structuralForLane
+    repick.bits.waitStore.valid := structuralForLane &&
+      structuralBlock.io.retry.bits.waitStore
+    repick.bits.waitStore.storeIndex :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeIndex
+    repick.bits.waitStore.storeIdValid :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeId.valid
+    repick.bits.waitStore.storeIdValue :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeId.value
+    repick.bits.waitStore.storeIdWrap :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeId.wrap
+    repick.bits.waitStore.storeLsidValid :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeLsId.valid
+    repick.bits.waitStore.storeLsidValue :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeLsId.value
+    repick.bits.waitStore.storeLsidWrap :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeLsId.wrap
+    repick.bits.waitStore.storeLsidFullValid :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeLsIdFullValid
+    repick.bits.waitStore.storeLsidFull :=
+      structuralBlock.io.retry.bits.waitStoreInfo.storeLsIdFull
+    repick.bits.waitStore.pc :=
+      structuralBlock.io.retry.bits.waitStoreInfo.pc
   }
+  structuralBlock.io.retry.ready := Mux1H(
+    UIntToOH(structuralBlock.io.retry.bits.returnPipeIndex,
+      p.lsu.loadPipes), io.iex.loadRepick.map(_.ready))
   for (lane <- 0 until p.lsu.loadPipes) {
     val cancel = io.iex.loadCancel(lane)
-    cancel.valid := rebindApply.valid && load.io.attemptRebindReady &&
+    cancel.valid := rebindApply.valid && selectedMutationReady &&
       rebindArbiter.io.chosen === lane.U
     cancel.bits := 0.U.asTypeOf(cancel.bits)
     cancel.bits.currentIdentity := rebindApply.bits.currentIdentity
   }
   val cancelFire = VecInit(io.iex.loadCancel.map(_.fire)).asUInt.orR
-  when(rebindApply.fire || load.io.attemptRebindAccepted || cancelFire) {
-    assert(rebindApply.fire && load.io.attemptRebindAccepted && cancelFire,
-      "LSU rebind, LIQ attempt mutation, and old-attempt cancel must share one fire")
+  val selectedMutationAccepted = Mux(
+    structuralRebind, load.io.structuralRetryAccepted,
+    load.io.attemptRebindAccepted)
+  when(rebindApply.fire || selectedMutationAccepted || cancelFire) {
+    assert(rebindApply.fire && selectedMutationAccepted && cancelFire,
+      "LSU rebind, selected LIQ mutation, and old-attempt cancel must share one fire")
   }
   io.iex.recoveryEvent.valid := load.recovery.valid
   io.iex.recoveryEvent.bits := 0.U.asTypeOf(io.iex.recoveryEvent.bits)
@@ -1062,6 +1197,7 @@ private final class LSUCanonicalOwner(val p: CoreParams) extends Module {
     maintenanceResultSuccess := !load.io.l1dMaintenanceError
   }
   when(backend.io.protocolError || lowerRecovery.io.protocolError ||
+      structuralBlock.io.protocolError ||
       load.io.l1dMaintenanceError) {
     protocolErrorSticky := true.B
   }

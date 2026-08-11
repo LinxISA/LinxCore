@@ -157,7 +157,8 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       attemptGeneration: Int,
       stid: Int = 1,
       transactionValue: BigInt = 0,
-      transactionGeneration: BigInt = 0): Unit = {
+      transactionGeneration: BigInt = 0,
+      tDestination: Boolean = false): Unit = {
     val alloc = dut.io.alloc.bits
     alloc.poke(0.U.asTypeOf(alloc))
     alloc.loadId.valid.poke(true.B)
@@ -181,13 +182,23 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     row.schedule.initialLoadAttemptGeneration.poke(attemptGeneration.U)
     pokeMember(row.schedule.member, ridSlot, stid = stid)
     row.schedule.destinations(0).valid.poke(true.B)
-    row.schedule.destinations(0).kind.poke(DestinationKind.Gpr)
-    row.schedule.destinations(0).atag.poke(6.U)
-    row.schedule.destinations(0).ptag.poke((31 + slot).U)
-    row.schedule.destinations(0).ptagGeneration.poke(4.U)
-    row.payload.previousPDestinations(0).valid.poke(true.B)
-    row.payload.previousPDestinations(0).ptag.poke((21 + slot).U)
-    row.payload.previousPDestinations(0).ptagGeneration.poke(3.U)
+    row.schedule.destinations(0).kind.poke(
+      (if (tDestination) DestinationKind.T else DestinationKind.Gpr))
+    row.schedule.destinations(0).atag.poke((if (tDestination) 31 else 6).U)
+    if (tDestination) {
+      row.schedule.destinations(0).relativeIndex.poke(2.U)
+      row.schedule.destinations(0).localTag.poke((3 + slot).U)
+      row.schedule.destinations(0).localSequence.valid.poke(true.B)
+      row.schedule.destinations(0).localSequence.index.poke((9 + slot).U)
+      row.schedule.destinations(0).localSequence.generation.poke(4.U)
+      row.payload.previousPDestinations(0).valid.poke(false.B)
+    } else {
+      row.schedule.destinations(0).ptag.poke((31 + slot).U)
+      row.schedule.destinations(0).ptagGeneration.poke(4.U)
+      row.payload.previousPDestinations(0).valid.poke(true.B)
+      row.payload.previousPDestinations(0).ptag.poke((21 + slot).U)
+      row.payload.previousPDestinations(0).ptagGeneration.poke(3.U)
+    }
     alloc.request.destination.poke(row.schedule.destinations(0).peek())
     alloc.request.address.poke((0x8000 + slot * 8).U)
     alloc.request.accessBytes.poke(8.U)
@@ -211,7 +222,8 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       stid: Int = 1,
       transactionValue: BigInt = 0,
       transactionGeneration: BigInt = 0,
-      pipeIndex: Int = 0): Unit = {
+      pipeIndex: Int = 0,
+      tDestination: Boolean = false): Unit = {
     val completion = dut.io.completion.bits
     completion.poke(0.U.asTypeOf(completion))
     completion.peId.poke(3.U)
@@ -241,10 +253,14 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
     completion.payload.transactionGeneration.poke(transactionGeneration.U)
     completion.payload.pipeIndex.poke(pipeIndex.U)
     completion.payload.dst.valid.poke(true.B)
-    completion.payload.dst.kind.poke(DestinationKind.Gpr)
-    completion.payload.dst.archTag.poke(6.U)
-    completion.payload.dst.physTag.poke((31 + slot).U)
-    completion.payload.dst.oldPhysTag.poke((21 + slot).U)
+    completion.payload.dst.kind.poke(
+      (if (tDestination) DestinationKind.T else DestinationKind.Gpr))
+    completion.payload.dst.archTag.poke((if (tDestination) 31 else 6).U)
+    completion.payload.dst.relTag.poke((if (tDestination) 2 else 0).U)
+    completion.payload.dst.physTag.poke(
+      (if (tDestination) 3 + slot else 31 + slot).U)
+    completion.payload.dst.oldPhysTag.poke(
+      (if (tDestination) 0 else 21 + slot).U)
     completion.payload.data.poke(
       (if (fault) BigInt(0) else BigInt("1122334455667788", 16)).U)
     completion.payload.faultValid.poke(fault.B)
@@ -285,6 +301,28 @@ class OooIexLoadTerminalMetadataSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.completion.valid.poke(false.B)
       dut.io.result.ready.poke(false.B)
+      dut.io.empty.expect(true.B)
+    }
+  }
+
+  test("retains a compact-load T destination through terminal publication") {
+    simulate(new OooIexLoadTerminalMetadata(p, core)) { dut =>
+      defaults(dut)
+      pokeAlloc(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, tDestination = true)
+      acceptAlloc(dut)
+
+      pokeCompletion(dut, slot = 1, rowGeneration = 0, ridSlot = 2,
+        attemptGeneration = 5, tDestination = true)
+      dut.io.result.ready.poke(true.B)
+      dut.io.result.valid.expect(true.B)
+      dut.io.result.bits.agu.destination.kind.expect(DestinationKind.T)
+      dut.io.result.bits.agu.destination.atag.expect(31.U)
+      dut.io.result.bits.agu.destination.relativeIndex.expect(2.U)
+      dut.io.result.bits.agu.destination.localTag.expect(4.U)
+      dut.io.result.bits.agu.destination.localSequence.valid.expect(true.B)
+      dut.clock.step()
+      dut.io.completion.valid.poke(false.B)
       dut.io.empty.expect(true.B)
     }
   }

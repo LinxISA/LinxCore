@@ -20,9 +20,9 @@ class OooIexAguPipelineSpec extends AnyFunSuite with ChiselSim {
     robRecoveryScanGroupsPerCycle = 2,
     robNonFlushScanGroupsPerCycle = 2,
     pcBufferEntries = 8,
-    pcBankCount = 2,
+    pcBankCount = 4,
     pcRecoveryScanGroupsPerCycle = 2,
-    pcWritePorts = 2,
+    pcWritePorts = 3,
     iqBankCount = 2,
     iqEntriesPerBank = 4,
     iqFreeSelectLeafEntries = 2,
@@ -128,6 +128,8 @@ class OooIexAguPipelineSpec extends AnyFunSuite with ChiselSim {
     payload.recipe.pcReadRequired.poke(rule.pcReadRequired.B)
     payload.recipe.pSourceCount.poke(rule.pSourceCount.U)
     payload.recipe.pDestinationCount.poke(rule.pDestinationCount.U)
+    payload.recipe.tAllocationCount.poke(rule.tAllocationCount.U)
+    payload.recipe.uAllocationCount.poke(rule.uAllocationCount.U)
     payload.immediateValid.poke((sources.length < 2).B)
     payload.immediate.poke(offset.U)
     payload.memory.valid.poke(true.B)
@@ -222,6 +224,34 @@ class OooIexAguPipelineSpec extends AnyFunSuite with ChiselSim {
       dut.io.e1.valid.poke(false.B)
       dut.io.request.ready.poke(false.B)
       dut.io.request.bits.address.expect(BigInt("fffffff8", 16).U)
+    }
+  }
+
+  test("accepts a compact load with one exact T destination") {
+    simulate(new OooIexAguPipeline(p)) { dut =>
+      clear(dut)
+      pokeExecute(dut, FrontendOpcodeDecodeTable.OP_C_LWI, ridSlot = 1,
+        sources = Seq(0x1000), mode = OooMemoryAddressMode.BaseOffset,
+        offset = 8, accessBytes = 4, signExtend = true)
+      val destination = dut.io.e1.bits.i2.row.schedule.destinations(0)
+      destination.kind.poke(DestinationKind.T)
+      destination.atag.poke(31.U)
+      destination.relativeIndex.poke(2.U)
+      destination.localTag.poke(3.U)
+      destination.localSequence.valid.poke(true.B)
+      destination.localSequence.index.poke(9.U)
+      destination.localSequence.generation.poke(4.U)
+      dut.io.request.ready.poke(true.B)
+
+      dut.io.e1.ready.expect(true.B)
+      dut.clock.step()
+      dut.io.e1.valid.poke(false.B)
+      dut.io.request.valid.expect(true.B)
+      dut.io.request.bits.address.expect(0x1008.U)
+      dut.io.request.bits.accessBytes.expect(4.U)
+      dut.io.request.bits.signExtend.expect(true.B)
+      dut.io.request.bits.destination.kind.expect(DestinationKind.T)
+      dut.io.request.bits.destination.localTag.expect(3.U)
     }
   }
 

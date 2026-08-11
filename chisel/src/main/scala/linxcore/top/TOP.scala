@@ -1,7 +1,6 @@
 package linxcore.top
 
 import chisel3._
-import chisel3.util.PriorityMux
 import linxcore.ctu.CTU
 import linxcore.dtu.DTU
 import linxcore.iex.IEX
@@ -31,6 +30,7 @@ class TOP(val p: CoreParams) extends Module {
   ooo.io.fromCtu <> ctu.io.toOoo
   iex.io.ooo <> ooo.io.iex
   lsu.io.iex <> iex.io.lsu
+  ifu.io.branchResolve <> iex.io.branchResolve
 
   ooo.io.recoveryToIfu <> ifu.io.recovery
   ooo.io.recoveryToCtu <> ctu.io.recovery
@@ -58,8 +58,8 @@ class TOP(val p: CoreParams) extends Module {
   }
   io.cmdIssue <> iex.io.cmdIssue
 
-  lsu.io.storeCommit <> io.storeCommit
-  lsu.io.storeClassify <> io.storeClassify
+  lsu.io.storeCommit <> ooo.io.storeCommit
+  ooo.io.storeResolve <> lsu.io.storeResolve
   lsu.io.loadReissueRequest <> io.loadReissueRequest
   io.memoryFault <> lsu.io.memoryFault
   lsu.io.maintenance <> io.maintenance
@@ -78,10 +78,12 @@ class TOP(val p: CoreParams) extends Module {
     ooo.io.trace,
     iex.io.trace,
     lsu.io.trace)
-  traceSources.foreach(_.ready := true.B)
-  dtu.io.traceIn.valid := traceSources.map(_.valid).reduce(_ || _)
-  dtu.io.traceIn.bits := PriorityMux(traceSources.map(source =>
-    source.valid -> source.bits))
+  val tracePacker = Module(new TracePrefixPacker(p, traceSources.length))
+  tracePacker.io.in.zip(traceSources).foreach { case (sink, source) =>
+    sink <> source
+  }
+  dtu.io.traceIn <> tracePacker.io.out
+  dtu.io.traceOverflowDropped := tracePacker.io.dropped
   io.trace <> dtu.io.traceOut
   io.performanceCounters := dtu.io.performanceCounters
 }

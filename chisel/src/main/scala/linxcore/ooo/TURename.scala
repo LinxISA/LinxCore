@@ -232,6 +232,7 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
         out.tSeqIndex := tMapQ(stid)(retainedIndex).history(0).tMapQIndex
         out.tSeqGeneration :=
           tMapQ(stid)(retainedIndex).history(0).tMapQGeneration
+        out.localEpoch := tMapQ(stid)(retainedIndex).epoch
         for (flat <- 0 until destSlots) {
           val ordinal = PopCount(prospectivePublishedT.take(flat))
           val history = prospectivePublish.entries(
@@ -244,6 +245,9 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
             out.tGeneration := history.tGeneration
             out.tSeqIndex := history.tMapQIndex
             out.tSeqGeneration := history.tMapQGeneration
+            out.localEpoch := prospectivePublish.entries(
+              flat / p.maxDestinationOperands).uop.decoded.instruction
+              .parent.identity.epoch
           }
         }
         out.ttagValid := true.B
@@ -260,6 +264,9 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
             out.tGeneration := physical._2
             out.tSeqIndex := seq._1
             out.tSeqGeneration := seq._2
+            out.localEpoch := in.entries(
+              flat / p.maxDestinationOperands).uop.instruction.parent
+              .identity.epoch
           }
         }
       }.elsewhen(src.valid && src.kind === OperandKind.U) {
@@ -272,6 +279,7 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
         out.uSeqIndex := uMapQ(stid)(retainedIndex).history(0).uMapQIndex
         out.uSeqGeneration :=
           uMapQ(stid)(retainedIndex).history(0).uMapQGeneration
+        out.localEpoch := uMapQ(stid)(retainedIndex).epoch
         for (flat <- 0 until destSlots) {
           val ordinal = PopCount(prospectivePublishedU.take(flat))
           val history = prospectivePublish.entries(
@@ -284,6 +292,9 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
             out.uGeneration := history.uGeneration
             out.uSeqIndex := history.uMapQIndex
             out.uSeqGeneration := history.uMapQGeneration
+            out.localEpoch := prospectivePublish.entries(
+              flat / p.maxDestinationOperands).uop.decoded.instruction
+              .parent.identity.epoch
           }
         }
         out.utagValid := true.B
@@ -300,6 +311,9 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
             out.uGeneration := physical._2
             out.uSeqIndex := seq._1
             out.uSeqGeneration := seq._2
+            out.localEpoch := in.entries(
+              flat / p.maxDestinationOperands).uop.instruction.parent
+              .identity.epoch
           }
         }
       }
@@ -391,6 +405,8 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
             row := 0.U.asTypeOf(row)
             row.valid := true.B
             row.rob := pub.entries(lane).uop.decoded.rob
+            row.epoch := pub.entries(lane).uop.decoded.instruction.parent
+              .identity.epoch
             row.blockLast := pub.entries(lane).uop.decoded.blockBoundary
             row.history(0) := hist
             tMapQ(st)(idx) := row
@@ -402,6 +418,8 @@ private[ooo] class TURename(val p: CoreParams) extends Module {
             row := 0.U.asTypeOf(row)
             row.valid := true.B
             row.rob := pub.entries(lane).uop.decoded.rob
+            row.epoch := pub.entries(lane).uop.decoded.instruction.parent
+              .identity.epoch
             row.blockLast := pub.entries(lane).uop.decoded.blockBoundary
             row.history(0) := hist
             uMapQ(st)(idx) := row

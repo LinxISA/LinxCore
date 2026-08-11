@@ -84,6 +84,22 @@ class CoreConfigurationSpec extends AnyFunSuite {
     assert(storeError.getMessage.contains("store pipe count must be positive"))
   }
 
+  test("STQ covers one atomic STD reservation batch and pipe counts match") {
+    val base = ParamProfiles.W4
+
+    val capacityError = intercept[IllegalArgumentException] {
+      base.copy(lsu = base.lsu.copy(storeQueueEntries = 2))
+    }
+    assert(capacityError.getMessage.contains(
+      "store queue must cover one atomic STD reservation batch"))
+
+    val couplingError = intercept[IllegalArgumentException] {
+      base.copy(iex = base.iex.copy(stdPipes = 1))
+    }
+    assert(couplingError.getMessage.contains(
+      "STD pipe count must match the LSU store pipe count"))
+  }
+
   test("lower-memory ledgers cover retained store and SCB capacities") {
     val base = ParamProfiles.W4
 

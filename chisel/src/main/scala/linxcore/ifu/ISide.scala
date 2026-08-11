@@ -266,8 +266,29 @@ class ISide(val p: CoreParams) extends Module {
 
   engine.io.invalidateItlb := false.B
   engine.io.invalidateL1I := false.B
-  engine.io.branchResolve.valid := false.B
+  engine.io.branchResolve.valid := io.branchResolve.valid
   engine.io.branchResolve.bits := 0.U.asTypeOf(engine.io.branchResolve.bits)
+  engine.io.branchResolve.bits.peId := io.branchResolve.bits.peId
+  engine.io.branchResolve.bits.transactionId :=
+    io.branchResolve.bits.transactionId
+  engine.io.branchResolve.bits.predictionTag :=
+    io.branchResolve.bits.predictionTag
+  engine.io.branchResolve.bits.threadId := io.branchResolve.bits.stid
+  engine.io.branchResolve.bits.fetchPacketUid :=
+    io.branchResolve.bits.fetchPacketUid
+  engine.io.branchResolve.bits.fetchSeq := io.branchResolve.bits.fetchSeq
+  engine.io.branchResolve.bits.epoch := io.branchResolve.bits.epoch
+  engine.io.branchResolve.bits.checkpointId :=
+    io.branchResolve.bits.checkpointId
+  engine.io.branchResolve.bits.requestPc := io.branchResolve.bits.requestPc
+  engine.io.branchResolve.bits.branchPc := io.branchResolve.bits.branchPc
+  engine.io.branchResolve.bits.fallthroughPc :=
+    io.branchResolve.bits.fallthroughPc
+  engine.io.branchResolve.bits.taken := io.branchResolve.bits.taken
+  engine.io.branchResolve.bits.target := io.branchResolve.bits.target
+  engine.io.branchResolve.bits.kind := io.branchResolve.bits.kind
+  engine.io.branchResolve.bits.mispredict := io.branchResolve.bits.mispredict
+  io.branchResolve.ready := engine.io.branchResolve.ready
   engine.io.d1ThreadId := 0.U
 
   val recoveryPending = RegInit(false.B)
@@ -407,13 +428,17 @@ class ISide(val p: CoreParams) extends Module {
   def mapPrediction(
       out: PredictionMeta,
       in: BranchPredictionRecord,
+      identity: IfuFetchIdentity,
       transactionId: UInt): Unit = {
     out.valid := in.valid
     out.predictionTag := in.predictionTag
     out.transactionId := transactionId
+    out.fetchPacketUid := identity.fetchPacketUid
+    out.fetchSeq := identity.fetchSeq
     out.checkpointId := in.checkpointId
     out.requestPc := in.requestPc
     out.taken := in.taken
+    out.branchPc := in.branchPc
     out.target := in.target
     out.fallthroughPc := in.fallthroughPc
     out.kind := PredictionKind.None
@@ -427,6 +452,7 @@ class ISide(val p: CoreParams) extends Module {
       is(BoundaryKind.ICall) { out.kind := PredictionKind.Indirect }
     }
     out.provider := in.provider.asUInt
+    out.stage := in.stage.asUInt
     out.confidence := in.confidence
     out.epoch := in.epoch
   }
@@ -438,7 +464,11 @@ class ISide(val p: CoreParams) extends Module {
     out.pc := source.pc
     out.instruction := source.insn
     out.lengthBytes := source.lenBytes
-    mapPrediction(out.prediction, source.prediction, source.transactionId)
+    mapPrediction(
+      out.prediction,
+      source.prediction,
+      source.identity,
+      source.transactionId)
     out.fetchFault := false.B
     out.fetchFaultCause := 0.U
   }
@@ -454,6 +484,7 @@ class ISide(val p: CoreParams) extends Module {
     mapPrediction(
       out.prediction,
       memory.io.lineFault.bits.request.prediction,
+      memory.io.lineFault.bits.request.identity,
       memory.io.lineFault.bits.request.transactionId)
     out.fetchFault := true.B
     out.fetchFaultCause := memory.io.lineFault.bits.cause
@@ -469,6 +500,7 @@ class ISide(val p: CoreParams) extends Module {
     mapPrediction(
       out.prediction,
       engine.io.fetchFault.bits.request.prediction,
+      engine.io.fetchFault.bits.request.identity,
       engine.io.fetchFault.bits.request.transactionId)
     out.fetchFault := true.B
     out.fetchFaultCause := 1.U

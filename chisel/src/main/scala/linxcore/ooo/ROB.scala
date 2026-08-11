@@ -18,11 +18,14 @@ class ROBIO(val p: CoreParams) extends Bundle {
   val publicationTransactionBase = Input(UInt(p.transactionIdWidth.W))
   val publishFire = Input(Bool())
   val completion = Flipped(Decoupled(new RobResolveTxn(p)))
+  val storeBinding = Flipped(Vec(p.iex.stdPipes,
+    Decoupled(new StoreTransactionBindingTxn(p))))
   val completionAccepted = Valid(new RobIdentity(p))
   val completionRejected = Valid(new RobIdentity(p))
   val commit = Decoupled(new OOORobCommitPreview(p))
   val residentHeads = Output(Vec(p.ooo.stidCount,
     new OOORobResidentHeadPreview(p)))
+  val headStatus = Output(Vec(p.ooo.stidCount, new OOORobHeadStatus(p)))
   val commitApply = Input(Bool())
   val release = Flipped(Valid(new OOORobReleaseTxn(p)))
   val releaseReady = Output(Bool())
@@ -187,6 +190,23 @@ class ROB(val p: CoreParams) extends Module {
   io.ridTailSlot := tailSlot
   io.ridTailGeneration := tailGeneration
   io.ridHeadSlot := headSlot
+
+  for (stid <- 0 until p.ooo.stidCount) {
+    val idx = orderCommitHead(stid)
+    io.headStatus(stid) := 0.U.asTypeOf(io.headStatus(stid))
+    io.headStatus(stid).valid := orderCommitCount(stid) =/= 0.U &&
+      orderValid(stid)(idx)
+    io.headStatus(stid).completed := orderCompleted(stid)(idx)
+    io.headStatus(stid).retired := orderRetired(stid)(idx)
+    io.headStatus(stid).transactionId := orderTransactionId(stid)(idx)
+    io.headStatus(stid).instruction := orderCommits(stid)(idx).instruction
+    io.headStatus(stid).rob := orderIds(stid)(idx)
+    io.headStatus(stid).pc := orderCommits(stid)(idx).pc
+    io.headStatus(stid).instructionBits :=
+      orderCommits(stid)(idx).instructionBits
+    io.headStatus(stid).opcode := orderCommits(stid)(idx).opcode
+  }
+  dontTouch(io.headStatus)
 
   // Side-effect-free capacity offer for the oldest complete candidate groups.
   // BROB bindings are deliberately absent here; final binding remains on the
@@ -385,6 +405,13 @@ class ROB(val p: CoreParams) extends Module {
     prepared.entries(lane).commit.instructionLengthBytes :=
       in.uop.decoded.instruction.parent.lengthBytes
     prepared.entries(lane).commit.opcode := in.uop.decoded.opcode
+    prepared.entries(lane).commit.memoryValid :=
+      in.uop.decoded.memory.valid
+    prepared.entries(lane).commit.memoryStore :=
+      in.uop.decoded.memory.isStore
+    prepared.entries(lane).commit.memory.rob := prepared.entries(lane).rob
+    prepared.entries(lane).commit.memory.lsid := in.memoryOrder.firstLsid
+    prepared.entries(lane).commit.memoryOrder := in.memoryOrder
     prepared.entries(lane).commit.destination := in.uop.destinations(0)
     prepared.entries(lane).commit.trap.valid := in.trap.valid
     prepared.entries(lane).commit.trap.kind := TrapKind.Exception
@@ -394,6 +421,8 @@ class ROB(val p: CoreParams) extends Module {
       in.uop.decoded.instruction.parent.identity
     prepared.entries(lane).rename.valid := active
     prepared.entries(lane).rename.rob := prepared.entries(lane).rob
+    prepared.entries(lane).rename.epoch :=
+      in.uop.decoded.instruction.parent.identity.epoch
     prepared.entries(lane).rename.blockLast := in.uop.decoded.blockBoundary
     prepared.entries(lane).rename.history := in.history
   }
@@ -428,6 +457,16 @@ class ROB(val p: CoreParams) extends Module {
     }
   }
 
+  val preparedStoreBindingMatches = io.storeBinding.map { binding =>
+    VecInit((0 until d3Width).map { lane =>
+      val entry = prepared.entries(lane)
+      lane.U < io.prepare.bits.count && entry.valid &&
+        entry.rob.asUInt === binding.bits.rob.asUInt &&
+        entry.commit.memoryStore &&
+        entry.commit.memoryOrder.asUInt === binding.bits.memoryOrder.asUInt
+    })
+  }
+
   when(io.prepare.valid && io.publishFire && prepareReady) {
     for (lane <- 0 until d3Width) {
       when(lane.U < io.prepare.bits.count) {
@@ -460,6 +499,21 @@ class ROB(val p: CoreParams) extends Module {
         orderAge(stid)(orderIndex) := nextAllocationAge + lane.U
         orderTransactionId(stid)(orderIndex) :=
           io.publicationTransactionBase + lane.U
+        val initialBinding = VecInit(io.storeBinding.indices.map { port =>
+          io.storeBinding(port).valid &&
+            preparedStoreBindingMatches(port)(lane)
+        })
+        when(prepared.entries(lane).commit.memoryStore) {
+          when(PopCount(initialBinding) === 1.U) {
+            val transaction = Mux1H(initialBinding,
+              io.storeBinding.map(_.bits.transaction))
+            commitAt(stid, slot, member).memory.transaction := transaction
+            orderCommits(stid)(orderIndex).memory.transaction := transaction
+          }
+        }.otherwise {
+          assert(!initialBinding.asUInt.orR,
+            "an initial store binding must not target a non-store D3 row")
+        }
       }
     }
     val (nextTail, wrap) = slotPlus(tailSlot(prepareStid),
@@ -474,6 +528,51 @@ class ROB(val p: CoreParams) extends Module {
     orderCommitCount(prepareStid) :=
       orderCommitCount(prepareStid) + io.prepare.bits.count
     nextAllocationAge := nextAllocationAge + io.prepare.bits.count
+  }
+
+  val storeBindingMatches = io.storeBinding.map { binding =>
+    val stid = safeStid(binding.bits.rob.stid)
+    VecInit((0 until orderCapacity).map { idx =>
+      orderValid(stid)(idx) &&
+        orderIds(stid)(idx).asUInt === binding.bits.rob.asUInt &&
+        orderCommits(stid)(idx).memoryStore &&
+        orderCommits(stid)(idx).memoryOrder.asUInt ===
+          binding.bits.memoryOrder.asUInt
+    })
+  }
+  for (lane <- io.storeBinding.indices) {
+    val binding = io.storeBinding(lane)
+    val matches = storeBindingMatches(lane)
+    val residentHit = binding.bits.rob.stid < p.ooo.stidCount.U &&
+      matches.asUInt.orR
+    val preparedMatches = preparedStoreBindingMatches(lane)
+    val preparedHit = io.prepare.valid && prepareReady &&
+      binding.bits.rob.stid < p.ooo.stidCount.U &&
+      preparedMatches.asUInt.orR
+    val index = PriorityEncoder(matches)
+    binding.ready := (residentHit && PopCount(matches) === 1.U) ||
+      (preparedHit && PopCount(preparedMatches) === 1.U)
+    when(binding.valid) {
+      assert(PopCount(matches) + PopCount(preparedMatches) <= 1.U,
+        "one IEX store transaction may match at most one exact ROB resident or prepared row")
+    }
+    when(binding.fire && residentHit) {
+      val stid = safeStid(binding.bits.rob.stid)
+      val id = binding.bits.rob
+      commitAt(stid, id.ridSlot, id.memberIndex).memory.transaction :=
+        binding.bits.transaction
+      orderCommits(stid)(index).memory.transaction := binding.bits.transaction
+    }
+  }
+  for (left <- io.storeBinding.indices; right <- left + 1 until io.storeBinding.length) {
+    when(io.storeBinding(left).valid && io.storeBinding(right).valid) {
+      assert((storeBindingMatches(left).asUInt &
+        storeBindingMatches(right).asUInt) === 0.U,
+        "simultaneous IEX store bindings must target distinct ROB residents")
+      assert((preparedStoreBindingMatches(left).asUInt &
+        preparedStoreBindingMatches(right).asUInt) === 0.U,
+        "simultaneous IEX store bindings must target distinct prepared ROB rows")
+    }
   }
 
   val comp = io.completion.bits.rob
@@ -521,6 +620,7 @@ class ROB(val p: CoreParams) extends Module {
   val stidHeadTrap = Wire(Vec(p.ooo.stidCount, Bool()))
   for (stid <- 0 until p.ooo.stidCount) {
     val headIdx = orderCommitHead(stid)
+    val headRob = orderIds(stid)(headIdx)
     stidHeadValid(stid) := orderCommitCount(stid) =/= 0.U &&
       orderValid(stid)(headIdx) && orderCompleted(stid)(headIdx) &&
       !orderRetired(stid)(headIdx)
@@ -531,10 +631,13 @@ class ROB(val p: CoreParams) extends Module {
     counts(0) := 0.U
     for (lane <- 0 until retireWidth) {
       val idx = orderPlus(orderCommitHead(stid), lane.U)
+      val rowRob = orderIds(stid)(idx)
+      val sameBrobBlock = rowRob.bid === headRob.bid &&
+        rowRob.brobGeneration === headRob.brobGeneration
       val completed = lane.U < orderCommitCount(stid) &&
         orderValid(stid)(idx) && orderCompleted(stid)(idx) &&
         !orderRetired(stid)(idx) &&
-        !orderCommits(stid)(idx).trap.valid
+        !orderCommits(stid)(idx).trap.valid && sameBrobBlock
       counts(lane + 1) := Mux(counts(lane) === lane.U && completed,
         (lane + 1).U,
         counts(lane))
@@ -795,7 +898,7 @@ class ROB(val p: CoreParams) extends Module {
   io.memoryRecoveryPrepared := Mux(recoveryPending,
     recoveryMemoryPlan, preparedMemoryRecovery)
 
-  io.recoveryPrepared.valid := recoveryPending || io.recoveryPrepare.ready
+  io.recoveryPrepared.valid := recoveryPending || io.recoveryPrepare.fire
   io.recoveryPrepared.bits := Mux(recoveryPending, recoveryPlan, preparedPlan)
   when(io.recoveryPrepare.fire) {
     recoveryPending := true.B

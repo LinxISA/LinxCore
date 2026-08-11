@@ -50,6 +50,7 @@ class FrontEndOp(val p: CoreParams) extends Bundle {
   val templateOrdinal = UInt(8.W)
   val templateCount = UInt(8.W)
   val templateOpcode = UInt(p.opcodeWidth.W)
+  val templateRegister = UInt(p.archRegWidth.W)
   val templateImmediate = UInt(p.dataWidth.W)
 }
 

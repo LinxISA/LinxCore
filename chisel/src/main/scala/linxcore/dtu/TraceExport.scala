@@ -8,8 +8,8 @@ import linxcore.top.interface.TracePacket
 class TraceExportIO(val p: CoreParams) extends Bundle {
   val in = Flipped(Decoupled(new TracePacket(p)))
   val out = Decoupled(new TracePacket(p))
-  val accepted = Output(Bool())
-  val dropped = Output(Bool())
+  val accepted = Output(UInt(64.W))
+  val dropped = Output(UInt(64.W))
 }
 
 /** One-slot, loss-tolerant trace observer.
@@ -27,8 +27,10 @@ class TraceExport(val p: CoreParams) extends Module {
   io.in.ready := true.B
   io.out.valid := occupied
   io.out.bits := packet
-  io.accepted := io.in.fire
-  io.dropped := io.in.fire && occupied && !io.out.ready
+  io.accepted := Mux(io.in.fire && (!occupied || io.out.ready),
+    io.in.bits.count, 0.U)
+  io.dropped := Mux(io.in.fire && occupied && !io.out.ready,
+    io.in.bits.count, 0.U)
 
   when(io.in.fire && (!occupied || io.out.ready)) {
     packet := io.in.bits

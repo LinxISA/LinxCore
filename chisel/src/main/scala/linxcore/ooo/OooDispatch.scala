@@ -83,6 +83,15 @@ class OooDispatch(val p: CoreParams) extends Module {
       lane.uop.decoded.classification.dispatchClass === OooDispatchClass.Cmd.U &&
       hasCapability(lane, OooDispatchClass.Cmd - 1,
         OooIexDomainCapability.EngineCommand)
+  private def routesFastResult(lane: D3RenameLane): Bool = {
+    val classification = lane.uop.decoded.classification
+    classification.valid &&
+      classification.disposition === OooOpcodeDisposition.FastResolve.U &&
+      (classification.fastResolveClass ===
+        OooFastResolveClass.ImmediateProducer.U ||
+        classification.fastResolveClass ===
+          OooFastResolveClass.ControlValueProducer.U)
+  }
 
   io.iex.aluDispatch.foreach { out =>
     out.valid := false.B; out.bits := 0.U.asTypeOf(out.bits)
@@ -104,19 +113,23 @@ class OooDispatch(val p: CoreParams) extends Module {
   }
   val laneActive = Wire(Vec(width, Bool()))
   val laneNeedsOutput = Wire(Vec(width, Bool()))
+  val laneStructurallyComplete = Wire(Vec(width, Bool()))
   val laneComplete = Wire(Vec(width, Bool()))
+  val structuralPrefix = Wire(Vec(width + 1, Bool()))
   val prefixComplete = Wire(Vec(width + 1, Bool()))
   val nextActiveLane = Module(new OooHierarchicalFreeSlotSelect(width, 1))
   nextActiveLane.io.available := laneActive.asUInt
   prefixComplete(0) := io.valid && !io.suppress &&
     nextActiveLane.io.selectedValid && nextActiveLane.io.selectedIndex === 0.U
+  structuralPrefix(0) := prefixComplete(0)
 
   for (offset <- 0 until width) {
     val index = io.cursor + offset.U
     val inRange = index < io.group.count
     val lane = laneAt(index)
     laneActive(offset) := inRange
-    val early = lane.earlyRobComplete || lane.uop.decoded.uopClass === UopClass.Boundary
+    val early = lane.earlyRobComplete || routesFastResult(lane) ||
+      lane.uop.decoded.uopClass === UopClass.Boundary
     laneNeedsOutput(offset) := inRange && !early
 
     val olderAlu = if (offset == 0) 0.U else PopCount((0 until offset).map { older =>
@@ -151,7 +164,10 @@ class OooDispatch(val p: CoreParams) extends Module {
     txn.memoryOrder := lane.memoryOrder
     txn.trap := lane.trap
     txn.pcBufferIndexOffset := lane.pcBufferIndexOffset
-    val allowed = prefixComplete(offset) && inRange && !early
+    // Payload and valid are functions only of the retained source group and
+    // static port geometry. Sink readiness controls `advance`, never the
+    // presented transaction. This is the Decoupled stability boundary.
+    val allowed = structuralPrefix(offset) && inRange && !early
     val routeAlu = routesAlu(lane)
     val routeBru = routesBru(lane)
     val routeAgu = routesAgu(lane)
@@ -170,13 +186,22 @@ class OooDispatch(val p: CoreParams) extends Module {
       readyAt(io.iex.systemDispatch, olderSystem)
     val cmdComplete = olderCmd < p.iex.cmdIssueQueues.U &&
       readyAt(io.iex.cmdDispatch, olderCmd)
-    laneComplete(offset) := !inRange || early ||
+    laneStructurallyComplete(offset) := !inRange || early ||
+      (routeAlu && olderAlu < p.iex.aluPipes.U) ||
+      (routeBru && olderBru < p.iex.bruPipes.U) ||
+      (routeAgu && olderAgu < p.iex.aguPipes.U) ||
+      (routeStore && olderAgu < p.iex.aguPipes.U &&
+        olderStd < p.iex.stdPipes.U) ||
+      (routeSystem && olderSystem < p.iex.systemMulticycleQueues.U) ||
+      (routeCmd && olderCmd < p.iex.cmdIssueQueues.U)
+    laneComplete(offset) := laneStructurallyComplete(offset) && (
+      !inRange || early ||
       (routeAlu && aluComplete) ||
       (routeBru && bruComplete) ||
       (routeAgu && aguComplete) ||
       (routeStore && storeComplete) ||
       (routeSystem && sysComplete) ||
-      (routeCmd && cmdComplete)
+      (routeCmd && cmdComplete))
 
     for (pipe <- 0 until p.iex.aluPipes) when(allowed && routeAlu && olderAlu === pipe.U) {
       io.iex.aluDispatch(pipe).valid := true.B; io.iex.aluDispatch(pipe).bits := txn
@@ -205,6 +230,8 @@ class OooDispatch(val p: CoreParams) extends Module {
       io.iex.cmdDispatch(queue).valid := true.B; io.iex.cmdDispatch(queue).bits := txn
     }
     prefixComplete(offset + 1) := prefixComplete(offset) && laneComplete(offset)
+    structuralPrefix(offset + 1) := structuralPrefix(offset) &&
+      laneStructurallyComplete(offset)
   }
 
   io.advance := PopCount((0 until width).map { offset =>

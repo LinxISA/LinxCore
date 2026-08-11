@@ -146,6 +146,19 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
       OooDispatchClass.Bru,
       OooSideEffectOwner.Bctrl,
       Seq.empty)
+    val prediction = terminal.execute.i2.row.payload.primaryPrediction
+    prediction.valid.poke(true.B)
+    prediction.predictionTag.poke(51.U)
+    prediction.transactionId.poke(52.U)
+    prediction.fetchPacketUid.poke(53.U)
+    prediction.fetchSeq.poke(54.U)
+    prediction.requestPc.poke(0x1000.U)
+    prediction.branchPc.poke(0x1010.U)
+    prediction.target.poke(0x1080.U)
+    prediction.fallthroughPc.poke(0x1020.U)
+    prediction.kind.poke(linxcore.common.BoundaryKind.Cond)
+    prediction.checkpointId.poke(1.U)
+    prediction.epoch.poke(11.U)
     terminal.bctrl.valid.poke(true.B)
     terminal.bctrl.kind.poke(OooIexBctrlUpdateKind.Condition)
     terminal.bctrl.condition.poke(true.B)
@@ -359,7 +372,7 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
 
       dut.io.robResolve.valid.expect(true.B)
       dut.io.trace.valid.expect(true.B)
-      dut.io.trace.bits.source.expect(OooIexTerminalSource.System)
+      dut.io.trace.bits.source.expect(OooIexTerminalSource.Bru)
       dut.io.trace.bits.member.group.peId.expect(3.U)
       dut.io.trace.bits.member.group.stid.expect(0.U)
       dut.io.trace.bits.member.group.ridSlot.expect(2.U)
@@ -372,6 +385,12 @@ class IEXPrivateTerminalSpec extends AnyFunSuite with ChiselSim {
       dut.io.tWrite.foreach(_.valid.expect(false.B))
       dut.io.uWrite.foreach(_.valid.expect(false.B))
       dut.io.wakeup.foreach(_.valid.expect(false.B))
+      dut.io.bctrl.valid.expect(true.B)
+      dut.io.bctrl.bits.transactionId.expect(43.U)
+      dut.io.bctrl.bits.prediction.predictionTag.expect(51.U)
+      dut.io.bctrl.bits.prediction.fetchPacketUid.expect(53.U)
+      dut.io.bctrl.bits.prediction.fetchSeq.expect(54.U)
+      dut.io.bctrl.bits.prediction.branchPc.expect(0x1010.U)
       dut.io.recoveryEvent.valid.expect(false.B)
       dut.io.terminalFire.expect(true.B)
     }

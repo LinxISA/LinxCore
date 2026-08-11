@@ -11,14 +11,18 @@ class PredictionMeta(val p: CoreParams) extends Bundle {
   val valid = Bool()
   val predictionTag = UInt(p.transactionIdWidth.W)
   val transactionId = UInt(p.transactionIdWidth.W)
+  val fetchPacketUid = UInt(p.instructionIdWidth.W)
+  val fetchSeq = UInt(p.instructionIdWidth.W)
   val checkpointId =
     UInt(InterfaceWidth.index(p.ifu.predictionCheckpointEntries).W)
   val requestPc = UInt(p.pcWidth.W)
   val taken = Bool()
+  val branchPc = UInt(p.pcWidth.W)
   val target = UInt(p.pcWidth.W)
   val fallthroughPc = UInt(p.pcWidth.W)
   val kind = PredictionKind()
   val provider = UInt(4.W)
+  val stage = UInt(3.W)
   val confidence = UInt(2.W)
   val epoch = UInt(p.epochWidth.W)
 }

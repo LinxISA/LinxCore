@@ -20,6 +20,7 @@ class IEXIO(val p: CoreParams) extends Bundle {
   val bootstrapReady = Output(Bool())
   val ooo = Flipped(new OOOIEXIO(p))
   val lsu = new IEXLSUIO(p)
+  val branchResolve = Decoupled(new BranchResolveTxn(p))
   val cmdIssue = Decoupled(new CmdIssueTxn(p))
   val trace = Decoupled(new TracePacket(p))
   val terminalPWrite = Valid(new IEXTerminalPWriteObservation(p))

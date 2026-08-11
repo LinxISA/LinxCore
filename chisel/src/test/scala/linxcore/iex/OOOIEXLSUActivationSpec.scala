@@ -35,7 +35,8 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
     dut.reset.poke(false.B)
 
     while (!dut.io.bootstrapComplete.peek().litToBoolean) dut.clock.step()
-    dut.io.bootstrapInitCount.expect(48.U)
+    dut.io.bootstrapInitCount.expect(
+      (dut.p.ooo.stidCount * dut.p.ooo.gprArchRegs).U)
   }
 
   test("joint W4 mainline graph accepts a canonical encoded program row") {
@@ -85,7 +86,7 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
   }
 
   test("public closed SDI block emits matching store address and data") {
-    simulate(new OOOIEXLSUActivationProbe(OOOIEXLSUActivationParams.W4)) { dut =>
+    simulate(new OOOIEXLSUActivationProbe(OOOIEXLSUActivationParams.W2)) { dut =>
       initialize(dut)
 
       val start = OooOpcodeRecipeTable.Rules.find(
@@ -96,8 +97,8 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
         (start, start.value, 0x2000),
         (sdi, sdi.value | (BigInt(0x88) << 20), 0x2004),
         (stop, stop.value, 0x2008))
-      dut.io.program.bits.count.poke(encodings.length.U)
-      encodings.zipWithIndex.foreach { case ((rule, raw, pc), lane) =>
+      dut.io.program.bits.count.poke(2.U)
+      encodings.take(2).zipWithIndex.foreach { case ((rule, raw, pc), lane) =>
         val entry = dut.io.program.bits.entries(lane)
         entry.kind.poke(FrontEndOpKind.Encoded64)
         entry.parent.identity.peId.poke(1.U)
@@ -117,6 +118,28 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
       dut.clock.step()
       dut.io.program.valid.poke(false.B)
 
+      dut.io.program.bits.poke(0.U.asTypeOf(dut.io.program.bits))
+      dut.io.program.bits.count.poke(1.U)
+      val (stopRule, stopRaw, stopPc) = encodings.last
+      val stopEntry = dut.io.program.bits.entries.head
+      stopEntry.kind.poke(FrontEndOpKind.Encoded64)
+      stopEntry.parent.identity.peId.poke(1.U)
+      stopEntry.parent.identity.stid.poke(0.U)
+      stopEntry.parent.identity.instructionId.poke(3.U)
+      stopEntry.parent.identity.epoch.poke(1.U)
+      stopEntry.parent.pc.poke(stopPc.U)
+      stopEntry.parent.instruction.poke(stopRaw.U)
+      stopEntry.parent.lengthBytes.poke(stopRule.lenBytes.U)
+      stopEntry.parent.prediction.valid.poke(true.B)
+      stopEntry.parent.prediction.requestPc.poke(stopPc.U)
+      stopEntry.parent.prediction.fallthroughPc.poke(
+        (stopPc + stopRule.lenBytes).U)
+      stopEntry.parent.prediction.epoch.poke(1.U)
+      dut.io.program.valid.poke(true.B)
+      while (!dut.io.program.ready.peek().litToBoolean) dut.clock.step()
+      dut.clock.step()
+      dut.io.program.valid.poke(false.B)
+
       var cycles = 0
       while ((dut.io.storeAddressCount.peek().litValue == 0 ||
           dut.io.storeDataCount.peek().litValue == 0) && cycles < 96) {
@@ -131,6 +154,16 @@ class OOOIEXLSUActivationSpec extends AnyFunSuite with ChiselSim {
         s"SDI must emit one public store data payload; " +
           s"sta=${dut.io.storeAddressCount.peek().litValue} " +
           s"std=${dut.io.storeDataCount.peek().litValue}")
+
+      while (dut.io.commitCount.peek().litValue == 0 && cycles < 192) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(dut.io.commitCount.peek().litValue == 1,
+        s"LSU must resolve the joined STA/STD store so the closed block can commit; " +
+          s"sta=${dut.io.storeAddressCount.peek().litValue} " +
+          s"std=${dut.io.storeDataCount.peek().litValue} " +
+          s"commit=${dut.io.commitCount.peek().litValue}")
     }
   }
 

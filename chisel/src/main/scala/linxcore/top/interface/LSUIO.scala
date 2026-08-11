@@ -32,10 +32,9 @@ class LSUMaintenanceResult(val p: CoreParams) extends Bundle {
 
 class LSUIO(val p: CoreParams) extends Bundle {
   val iex = Flipped(new IEXLSUIO(p))
+  val storeResolve = Decoupled(new RobResolveTxn(p))
   val storeCommit = Flipped(Decoupled(
     new StoreCommitAuthorizationTxn(p)))
-  val storeClassify = Flipped(Decoupled(
-    new StoreMemoryClassifyTxn(p)))
   val loadReissueRequest = Flipped(Decoupled(new LoadReplayRequestTxn(p)))
   val memoryRequest = Vec(p.lsu.loadPipes + p.lsu.storePipes,
     Decoupled(new MemoryRequestTxn(p)))
