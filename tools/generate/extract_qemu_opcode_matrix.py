@@ -18,7 +18,7 @@ def main() -> int:
     ap.add_argument(
         "--linxisa-root",
         default=str(LINXISA_ROOT),
-        help="Path to the LinxISA superproject containing isa/v0.57",
+        help="Path to the LinxISA superproject containing the locked ISA profile",
     )
     ap.add_argument(
         "--out",
@@ -27,8 +27,8 @@ def main() -> int:
     )
     ap.add_argument(
         "--isa-profile",
-        default="v0.57",
-        help="Locked LinxISA profile (default: v0.57)",
+        default="v0.58",
+        help="Locked LinxISA profile (default: v0.58)",
     )
     args = ap.parse_args()
 
@@ -42,7 +42,7 @@ def main() -> int:
     family_counts = catalog["source"]["tile_family_counts"]
     print(
         f"forms={len(records)} unique_symbols={len(syms)} "
-        f"TEPL={family_counts['TEPL']} TMA={family_counts['TMA']} CUBE={family_counts['CUBE']}"
+        f"TEPL={family_counts['TEPL']} TLSU={family_counts['TLSU']} CUBE={family_counts['CUBE']}"
     )
     return 0
 

@@ -36,7 +36,7 @@ def main() -> int:
         help="Optional QEMU consumer decode directory; the locked LinxISA snapshot is the default authority",
     )
     ap.add_argument("--linxisa-root", default=str(LINXISA_ROOT))
-    ap.add_argument("--isa-profile", default="v0.57")
+    ap.add_argument("--isa-profile", default="v0.58")
     ap.add_argument("--catalog", default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"))
     args = ap.parse_args()
 

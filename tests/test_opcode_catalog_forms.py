@@ -191,11 +191,11 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             for raw in raw_forms:
                 self.assertIn(f'value = BigInt("{raw:x}", 16)', scala)
 
-    def test_v057_tma_cube_and_scalar_delta_decode(self) -> None:
+    def test_active_tlsu_cube_and_scalar_delta_decode(self) -> None:
         from common.decode32 import decode32_meta
         from common.opcode_meta_gen import opcode_meta_forms_by_mnemonic
 
-        tma_forms = (
+        tlsu_forms = (
             ("bstart_tload", 0x00011181),
             ("bstart_tstore", 0x00111181),
             ("bstart_tmov", 0x00211181),
@@ -205,13 +205,13 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             ("bstart_mgather_mask", 0x00611181),
             ("bstart_mscatter_mask", 0x00711181),
             ("bstart_mgather_cas", 0x00811181),
+            ("bstart_gmov", 0x00D11181),
         )
-        for expected_function, (mnemonic, raw) in enumerate(tma_forms):
+        for mnemonic, raw in tlsu_forms:
             decoded = decode32_meta(raw)
             self.assertIsNotNone(decoded)
             self.assertEqual(decoded.mnemonic, mnemonic)
-            self.assertEqual(decoded.symbol, "OP_BSTART_TMA")
-            self.assertEqual((raw >> 20) & 0x1F, expected_function)
+            self.assertEqual(decoded.symbol, "OP_BSTART_TLSU")
             self.assertEqual(len(opcode_meta_forms_by_mnemonic(mnemonic)), 1)
 
         cube_aliases = (
@@ -241,7 +241,7 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             self.assertEqual(decoded.mnemonic, mnemonic)
             self.assertEqual(decoded.symbol, symbol)
 
-    def test_v057_non_pto_command_and_boundary_forms_remain_decodable(self) -> None:
+    def test_active_non_pto_command_and_boundary_forms_remain_decodable(self) -> None:
         from common.decode16 import decode16_meta
         from common.decode32 import decode32_meta
         from common.decode64 import decode64_meta
@@ -306,38 +306,38 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         self.assertEqual(decode64_meta(0x0000207D0000007F).mnemonic, "v_qpop")
         self.assertEqual(decode64_meta(0x0000107D0000007F).mnemonic, "v_qpush")
 
-    def test_v057_locked_pto_counts_and_exact_decode_surface(self) -> None:
+    def test_active_locked_pto_counts_and_exact_decode_surface(self) -> None:
         from common.decode32 import decode32_meta
 
         catalog = json.loads((ROOT / "src/common/opcode_catalog.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(catalog["source"]["release"], "0.57.1")
+        self.assertEqual(catalog["source"]["release"], "0.58.0")
         self.assertEqual(
             catalog["source"]["pto_spec_commit"],
-            "2f3f605e289b09d56ef5a9ba39fc80b52948a5f5",
+            "1c2cb0dcafdbc151357c83e89e7d9460b5d9f401",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_content_sha256"],
-            "748c1c6ac1bd5482d219cd08b8f0a871c7eda2b8f8afb1e81d498ec742e8abe8",
+            "355e96045cd3f159c367c75d32b1b2d0a8438cd8df61def2b5d4cd650d103873",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_release_manifest_sha256"],
-            "d85ee1cfcd51b1b86184ba015e9fb24ee61371165cf4691a5794f79618f7e273",
+            "9f9a5c81cb78b5409e88eb8007bb89d145e298377a458f15a6dbb0ee9ff0ceee",
         )
         self.assertEqual(
             catalog["source"]["hardware_conformance_profile_id"],
-            "pto-hardware-numeric-0.57.1-ieee-v1",
+            "pto-hardware-numeric-0.58.0-ieee-v1",
         )
         self.assertEqual(
             catalog["source"]["hardware_conformance_profile_sha256"],
-            "becfbefcc7a31408e5e5293802493f833f68a2fccebb3f9e8008d8b9f4e7658c",
+            "c4076cf8ac6ebd0c6db8a070b7c290b9928ed7f98c089538ee53ed4644e1531a",
         )
         self.assertEqual(
             catalog["source"]["numeric_conformance_vectors_sha256"],
-            "b9f908deb9cfec412388e95f4532563cf4e462032b43d15996f0f7b4b93b4ec9",
+            "0ad9405b5b7da3803fcf3f803c66ea66918d4363e4342356b1f818804d7f30e8",
         )
         self.assertEqual(catalog["source"]["command_form_count"], 99)
-        self.assertEqual(catalog["source"]["tile_operation_count"], 120)
-        expected_counts = {"TEPL": 98, "TMA": 9, "CUBE": 13}
+        self.assertEqual(catalog["source"]["tile_operation_count"], 109)
+        expected_counts = {"TEPL": 87, "TLSU": 10, "CUBE": 12}
         actual_counts = {
             family: len(
                 [record for record in catalog["records"] if record.get("operation_family") == family]
@@ -361,13 +361,15 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         self.assertEqual(int(by_mnemonic["b_catr"][0]["match"], 0), 0x00000023)
         self.assertEqual(int(by_mnemonic["b_datr"][0]["mask"], 0), 0x000C707F)
         self.assertEqual(int(by_mnemonic["b_datr"][0]["match"], 0), 0x00001023)
-        self.assertEqual(len(by_mnemonic["b_iot"]), 5)
-        for record in by_mnemonic["b_iot"]:
-            decoded = decode32_meta(int(record["match"], 0))
-            self.assertIsNotNone(decoded)
-            self.assertEqual(decoded.mnemonic, "b_iot")
+        self.assertEqual(len(by_mnemonic["b_ios"]), 1)
+        self.assertEqual(int(by_mnemonic["b_ios"][0]["mask"], 0), 0xF00871FF)
+        self.assertEqual(int(by_mnemonic["b_ios"][0]["match"], 0), 0x00001013)
+        decoded = decode32_meta(0x00001013)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded.mnemonic, "b_ios")
+        self.assertEqual(decoded.symbol, "OP_B_IOS")
 
-    def test_v057_reserved_deleted_and_legacy_pto_forms_are_illegal(self) -> None:
+    def test_active_reserved_deleted_and_legacy_pto_forms_are_illegal(self) -> None:
         from common.decode32 import decode32_meta
         from common.opcode_meta_gen import opcode_meta_forms_by_mnemonic
 
@@ -398,7 +400,6 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         for deleted in (
             "taddc",
             "taddsc",
-            "tfma",
             "tfmod",
             "tfmods",
             "tlrelu",
@@ -457,20 +458,6 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             self.assertIn("dispatch = 4", rule)
             self.assertIn("isLoad = false", rule)
             self.assertIn("isStore = true", rule)
-
-        for retired in (
-            "taddc",
-            "taddsc",
-            "tfma",
-            "tfmod",
-            "tfmods",
-            "tlrelu",
-            "trandom",
-            "tsubc",
-            "tsubsc",
-        ):
-            self.assertEqual(opcode_meta_forms_by_mnemonic(f"bstart_{retired}"), ())
-
 
 if __name__ == "__main__":
     unittest.main()
