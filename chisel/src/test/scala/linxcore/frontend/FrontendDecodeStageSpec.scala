@@ -404,7 +404,7 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
   import FrontendDecodeStageReference._
 
   test("generated opcode table preserves pyCircuit catalog IDs and rule count") {
-    assert(FrontendOpcodeDecodeTable.RuleCount == 871)
+    assert(FrontendOpcodeDecodeTable.RuleCount == 862)
     assert(FrontendOpcodeDecodeTable.OP_ADD == 50)
     assert(FrontendOpcodeDecodeTable.OP_LD == 339)
     assert(FrontendOpcodeDecodeTable.OP_SD == 378)
@@ -412,7 +412,7 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(FrontendOpcodeDecodeTable.OP_C_BSTOP == 36)
     assert(FrontendOpcodeDecodeTable.OP_BSTOP == 663)
     assert(FrontendOpcodeDecodeTable.OP_BSTART_CUBE == 1)
-    assert(FrontendOpcodeDecodeTable.OP_BSTART_TMA == 22)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_TLSU == 22)
     assert(FrontendOpcodeDecodeTable.OP_CASB == 64)
     assert(FrontendOpcodeDecodeTable.OP_DMA == 75)
     assert(FrontendOpcodeDecodeTable.OP_BSTART_VPAR == 731)
@@ -495,12 +495,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(decode(0x00003009L, lenBytes = 4).map(_.symbol).contains("OP_LD"))
     assert(decode(0x00003049L, lenBytes = 4).map(_.symbol).contains("OP_SD"))
     assert(decode(0x00000013L, lenBytes = 4).map(_.symbol).contains("OP_BIOR"))
-    assert(decode(0x00311181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TMA"))
-    assert(decode(0x00811181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TMA"))
+    assert(decode(0x00311181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TLSU"))
+    assert(decode(0x00811181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TLSU"))
     assert(decode(0x00131181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_CUBE"))
     assert(decode(0x00631181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_CUBE"))
     assert(decode(0x00019181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TEPL"))
-    assert(decode(0x07d19181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TEPL"))
+    assert(decode(0x06f19181L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_TEPL"))
     assert(decode(0x00519181L, lenBytes = 4).isEmpty)
     assert(decode(0x00911181L, lenBytes = 4).isEmpty)
     assert(decode(0x00331181L, lenBytes = 4).isEmpty)

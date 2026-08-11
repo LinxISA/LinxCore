@@ -7,6 +7,7 @@ from pycircuit import Circuit, function, module
 
 from common.isa import (
     OP_BIOR,
+    OP_B_IOS,
     OP_B_IOT,
     OP_BSTART_MSEQ,
     OP_BSTART_STD_CALL,
@@ -103,6 +104,7 @@ def classify_dispatch_target(m: Circuit, op, op_is):
         op,
         OP_BTEXT,
         OP_BIOR,
+        OP_B_IOS,
         OP_B_IOT,
     )
     to_lsu = is_mem

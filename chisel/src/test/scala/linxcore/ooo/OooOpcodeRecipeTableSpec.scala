@@ -22,8 +22,8 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
       fail(s"missing generated recipe rule for $symbol"))
 
   test("generated recipes classify every encoded catalog form and fail closed explicitly") {
-    assert(OooOpcodeRecipeTable.CatalogRecordCount == 874)
-    assert(OooOpcodeRecipeTable.DecodeRuleCount == 872)
+    assert(OooOpcodeRecipeTable.CatalogRecordCount == 865)
+    assert(OooOpcodeRecipeTable.DecodeRuleCount == 863)
     assert(OooOpcodeRecipeTable.OpcodeCount == 736)
     assert(OooOpcodeRecipeTable.Rules.size == OooOpcodeRecipeTable.DecodeRuleCount)
     val catalogOnlyRecordCount = OooOpcodeRecipeTable.CatalogRecordCount -
@@ -73,7 +73,7 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
     assert(rule("OP_HL_SETRET").fastResolveClass == OooFastResolveClass.ImmediateProducer)
     assert(rule("OP_EBREAK").fastResolveClass == OooFastResolveClass.PreciseTrapRecord)
     assert(rule("OP_ACRC").dispatchClass == OooDispatchClass.Sys)
-    assert(rule("OP_BSTART_TMA").recipeKind == OooOpcodeRecipeKind.EngineCmd)
+    assert(rule("OP_BSTART_TLSU").recipeKind == OooOpcodeRecipeKind.EngineCmd)
     val teplCarrier = OooOpcodeRecipeTable.Rules.find { entry =>
       entry.symbol == "OP_BSTART_TEPL" && entry.mask == BigInt("fffff", 16)
     }.getOrElse(fail("missing generic BSTART.TEPL structural decode carrier"))
