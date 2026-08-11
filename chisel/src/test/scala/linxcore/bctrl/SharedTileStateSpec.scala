@@ -126,6 +126,25 @@ class SharedTileStateSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("canonical PE masks preserve architectural lane ordering") {
+    for (mask <- Seq(0x1, 0x3, 0x7, 0xf)) {
+      simulate(new SharedTileState) { dut =>
+        clear(dut)
+        write(dut, sharedId = mask, peMask = mask, sizeCode = 1, bytes = 128)
+        dut.io.status.expect(SharedTileWriteStatus.Applied)
+        dut.io.commit.bits.allocatedBytes.expect((128 * Integer.bitCount(mask)).U)
+        dut.clock.step()
+
+        dut.io.write.valid.poke(false.B)
+        dut.io.readSharedId.poke(mask.U)
+        for (pe <- 0 until 4) {
+          dut.io.readPeId.poke(pe.U)
+          dut.io.readInitialized.expect(((mask & (1 << (3 - pe))) != 0).B)
+        }
+      }
+    }
+  }
+
   test("subset updates preserve allocation while expansion and descriptor changes reject") {
     simulate(new SharedTileState) { dut =>
       clear(dut)
