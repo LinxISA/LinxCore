@@ -42,9 +42,9 @@ LEGACY_SYMBOL_OVERRIDES = {
     "bstart_call": "OP_BSTART_STD_CALL",
     "bstart_cond": "OP_BSTART_STD_COND",
     "bstart_direct": "OP_BSTART_STD_DIRECT",
-    "bstart_tload": "OP_BSTART_TMA",
-    "bstart_tstore": "OP_BSTART_TMA",
-    "bstart_tmov": "OP_BSTART_TMA",
+    "bstart_tload": "OP_BSTART_TLSU",
+    "bstart_tstore": "OP_BSTART_TLSU",
+    "bstart_tmov": "OP_BSTART_TLSU",
     "bstart_tmatmul": "OP_BSTART_CUBE",
     "bstart_tmatmul_acc": "OP_BSTART_CUBE",
     "bstart_tmatmul_bias": "OP_BSTART_CUBE",
@@ -57,12 +57,13 @@ LEGACY_SYMBOL_OVERRIDES = {
     "bstart_tgemvmx": "OP_BSTART_CUBE",
     "bstart_tgemvmx_acc": "OP_BSTART_CUBE",
     "bstart_tgemvmx_bias": "OP_BSTART_CUBE",
-    "bstart_tprefetch": "OP_BSTART_TMA",
-    "bstart_mgather": "OP_BSTART_TMA",
-    "bstart_mscatter": "OP_BSTART_TMA",
-    "bstart_mgather_mask": "OP_BSTART_TMA",
-    "bstart_mscatter_mask": "OP_BSTART_TMA",
-    "bstart_mgather_cas": "OP_BSTART_TMA",
+    "bstart_tprefetch": "OP_BSTART_TLSU",
+    "bstart_mgather": "OP_BSTART_TLSU",
+    "bstart_mscatter": "OP_BSTART_TLSU",
+    "bstart_mgather_mask": "OP_BSTART_TLSU",
+    "bstart_mscatter_mask": "OP_BSTART_TLSU",
+    "bstart_mgather_cas": "OP_BSTART_TLSU",
+    "bstart_gmov": "OP_BSTART_TLSU",
     "hl_bstart_std_fall": "OP_BSTART_STD_FALL",
     "hl_bstart_std_call": "OP_BSTART_STD_CALL",
     "hl_bstart_std_cond": "OP_BSTART_STD_COND",
@@ -103,6 +104,10 @@ OP_ID_CATEGORY_OVERRIDES = {
     "OP_SC_H": "MISC",
     "OP_SC_W": "MISC",
 }
+
+# B.IOS replaces the retired compressed C.B.IOS spelling without changing the
+# cross-model opcode identity consumed by QEMU and the cycle model.
+OP_ID_FIXED_OVERRIDES = {"OP_B_IOS": 638}
 
 
 @dataclass(frozen=True)
@@ -302,6 +307,7 @@ def cmd_kind_for_mnemonic(mnemonic: str) -> str:
         "b_text": "BTEXT",
         "b_ior": "BIOR",
         "b_iot": "BIOT",
+        "b_ios": "BIOS",
     }.get(mnemonic, "NONE")
 
 
@@ -373,7 +379,7 @@ OOO_SETRET_SYMBOLS = {"OP_SETRET", "OP_C_SETRET", "OP_HL_SETRET"}
 OOO_ATOMIC_PREFIXES = ("OP_LR_", "OP_SC_", "OP_CAS", "OP_HL_CAS", "OP_AMO")
 OOO_ENGINE_BOUNDARY_SYMBOLS = {
     "OP_BSTART_CUBE", "OP_BSTART_FIXP", "OP_BSTART_MPAR", "OP_BSTART_MSEQ",
-    "OP_BSTART_TEPL", "OP_BSTART_TMA", "OP_BSTART_VPAR", "OP_BSTART_VSEQ",
+    "OP_BSTART_TEPL", "OP_BSTART_TLSU", "OP_BSTART_VPAR", "OP_BSTART_VSEQ",
     "OP_BSTART_SYS", "OP_HL_BSTART_SYS", "OP_L_BSTART_SYS",
     "OP_C_BSTART_MPAR", "OP_C_BSTART_MSEQ", "OP_C_BSTART_SYS",
     "OP_C_BSTART_VPAR", "OP_C_BSTART_VSEQ",
@@ -809,7 +815,7 @@ def _command_decode_name(form: dict) -> str:
     return base
 
 
-def _entry_from_linx_instruction(insn: dict) -> DecodeEntry:
+def _entry_from_linx_instruction(insn: dict, *, source_profile: str) -> DecodeEntry:
     parts = list(insn.get("encoding", {}).get("parts", []))
     length_bits = int(insn["length_bits"])
     mask, match, pattern, enc_len, source_file = _combine_encoding(parts, length_bits)
@@ -821,7 +827,7 @@ def _entry_from_linx_instruction(insn: dict) -> DecodeEntry:
         mask=mask,
         match=match,
         fields=_field_tokens(parts),
-        source_profile="v0.57.1",
+        source_profile=source_profile,
         imm_kind_override=_immediate_kind_from_fields(parts),
     )
 
@@ -836,6 +842,7 @@ def _entry_from_command_form(
     operation_family: str = "",
     operation_name: str = "",
     imm_kind_override: str = "",
+    source_profile: str,
 ) -> DecodeEntry:
     encodings = list(form.get("encoding", []))
     length_bits = int(form["length_bits"])
@@ -852,7 +859,7 @@ def _entry_from_command_form(
         mask=form_mask,
         match=form_match,
         fields=[f"%{field['name']}" for field in form.get("fields", [])],
-        source_profile="v0.57.1",
+        source_profile=source_profile,
         symbol_override=symbol_override,
         operation_family=operation_family,
         operation_name=operation_name,
@@ -861,7 +868,7 @@ def _entry_from_command_form(
     )
 
 
-def _resolve_snapshot_root(linxisa_root: Path | None = None, profile: str = "v0.57") -> Path:
+def _resolve_snapshot_root(linxisa_root: Path | None = None, profile: str = "v0.58") -> Path:
     root = linxisa_root
     if root is None:
         configured = os.environ.get("LINXISA_ROOT") or os.environ.get("LINXISA_DIR")
@@ -880,7 +887,7 @@ def _resolve_snapshot_root(linxisa_root: Path | None = None, profile: str = "v0.
 
 
 def load_locked_linxisa_entries(
-    linxisa_root: Path | None = None, *, profile: str = "v0.57"
+    linxisa_root: Path | None = None, *, profile: str = "v0.58"
 ) -> tuple[list[DecodeEntry], dict[str, object]]:
     snapshot = _resolve_snapshot_root(linxisa_root, profile)
     isa = json.loads((snapshot / f"linxisa-{profile}.json").read_text(encoding="utf-8"))
@@ -891,59 +898,65 @@ def load_locked_linxisa_entries(
     operations = json.loads((snapshot / "state" / "pto_ops.json").read_text(encoding="utf-8"))
 
     release = str(lock.get("release", ""))
-    if release != "0.57.1" or str(isa.get("version", "")) != release:
-        raise ValueError(f"expected locked ISA release 0.57.1, got lock={release!r} isa={isa.get('version')!r}")
-    expected_commit = "2f3f605e289b09d56ef5a9ba39fc80b52948a5f5"
+    if profile != "v0.58" or release != "0.58.0" or str(isa.get("version", "")) != release:
+        raise ValueError(
+            f"expected active locked ISA profile v0.58 release 0.58.0, "
+            f"got profile={profile!r} lock={release!r} isa={isa.get('version')!r}"
+        )
+    expected_commit = "1c2cb0dcafdbc151357c83e89e7d9460b5d9f401"
     if str(lock.get("source", {}).get("commit", "")) != expected_commit:
-        raise ValueError("PTO source commit does not match the reviewed 0.57.1 lock")
+        raise ValueError("PTO source commit does not match the reviewed 0.58.0 lock")
     expected_lock_identity = {
-        "content_sha256": "748c1c6ac1bd5482d219cd08b8f0a871c7eda2b8f8afb1e81d498ec742e8abe8",
-        "encoding_abi": "pto-isa-0.57.1-mode-function-v1",
-        "encoding_projection_sha256": "9705a984e2e48e0d4e856d3fbcfa07041c8578dd326d81f1c90279e826354c32",
+        "content_sha256": "355e96045cd3f159c367c75d32b1b2d0a8438cd8df61def2b5d4cd650d103873",
+        "encoding_abi": "pto-isa-0.58.0-mode-function-v1",
+        "encoding_projection_sha256": "0cad2272ada8f53fc8354e22568099fe8d6bd4b7832c837260cd370b0fc76ffa",
     }
     for field, expected_value in expected_lock_identity.items():
         if str(lock.get(field, "")) != expected_value:
-            raise ValueError(f"PTO {field} does not match the reviewed 0.57.1 lock")
+            raise ValueError(f"PTO {field} does not match the reviewed 0.58.0 lock")
     expected_release_manifest = {
         "path": "spec/release-manifest.json",
-        "sha256": "d85ee1cfcd51b1b86184ba015e9fb24ee61371165cf4691a5794f79618f7e273",
+        "sha256": "9f9a5c81cb78b5409e88eb8007bb89d145e298377a458f15a6dbb0ee9ff0ceee",
     }
     if lock.get("release_manifest") != expected_release_manifest:
-        raise ValueError("PTO release manifest does not match the reviewed 0.57.1 lock")
+        raise ValueError("PTO release manifest does not match the reviewed 0.58.0 lock")
     expected_hardware_profile = {
         "path": "spec/hardware-conformance-profile.json",
-        "profile_id": "pto-hardware-numeric-0.57.1-ieee-v1",
-        "sha256": "becfbefcc7a31408e5e5293802493f833f68a2fccebb3f9e8008d8b9f4e7658c",
+        "profile_id": "pto-hardware-numeric-0.58.0-ieee-v1",
+        "sha256": "c4076cf8ac6ebd0c6db8a070b7c290b9928ed7f98c089538ee53ed4644e1531a",
     }
     if lock.get("hardware_conformance_profile") != expected_hardware_profile:
-        raise ValueError("PTO hardware conformance profile does not match the reviewed 0.57.1 lock")
+        raise ValueError("PTO hardware conformance profile does not match the reviewed 0.58.0 lock")
     expected_numeric_vectors = {
-        "path": "spec/evidence/pto-isa-0571-hardware-numeric-vectors.json",
-        "sha256": "b9f908deb9cfec412388e95f4532563cf4e462032b43d15996f0f7b4b93b4ec9",
+        "path": "spec/evidence/pto-isa-0580-hardware-numeric-vectors.json",
+        "sha256": "0ad9405b5b7da3803fcf3f803c66ea66918d4363e4342356b1f818804d7f30e8",
     }
     if lock.get("numeric_conformance_vectors") != expected_numeric_vectors:
-        raise ValueError("PTO numeric conformance vectors do not match the reviewed 0.57.1 lock")
+        raise ValueError("PTO numeric conformance vectors do not match the reviewed 0.58.0 lock")
     expected_hashes = {
-        "command_forms": "e5a98441098fdd88c0f5837bb3e1367d7b272ebc2ba506275e9e2be1b4c1978a",
-        "tile_operations": "e77c762122dd776ea8b1b2113e6d095b2db0fe24b5b98d0c26012db9fb98e64e",
+        "command_forms": "aaa16ddd046b7c6ee06aedd6444c90da2541c6f3204ef8d12dba34815e96f15b",
+        "tile_operations": "aa1fa0a5ba07c7f015875025cc93c42f49b8d4313c55ce2cd72eaaa51bdc7d56",
     }
     for catalog_name, expected_hash in expected_hashes.items():
         if str(lock["catalogs"][catalog_name].get("sha256", "")) != expected_hash:
-            raise ValueError(f"{catalog_name} hash does not match the reviewed 0.57.1 lock")
+            raise ValueError(f"{catalog_name} hash does not match the reviewed 0.58.0 lock")
     for projection in (command_forms, operations):
-        if projection.get("source_lock") != "isa/v0.57/pto-spec.lock.json":
-            raise ValueError("PTO projection is not bound to isa/v0.57/pto-spec.lock.json")
+        if projection.get("source_lock") != "isa/v0.58/pto-spec.lock.json":
+            raise ValueError("PTO projection is not bound to isa/v0.58/pto-spec.lock.json")
     expected_forms = int(lock["catalogs"]["command_forms"]["count"])
     expected_operations = int(lock["catalogs"]["tile_operations"]["count"])
     if int(command_forms.get("form_count", -1)) != expected_forms or len(command_forms.get("forms", [])) != expected_forms:
         raise ValueError("PTO command-form count does not match pto-spec.lock.json")
     if int(operations.get("operation_count", -1)) != expected_operations or len(operations.get("operations", [])) != expected_operations:
         raise ValueError("PTO operation count does not match pto-spec.lock.json")
-    expected_families = {"TEPL": 98, "TMA": 9, "CUBE": 13}
+    expected_families = {"TEPL": 87, "TLSU": 10, "CUBE": 12}
     if operations.get("family_counts") != expected_families:
         raise ValueError(f"unexpected PTO operation families: {operations.get('family_counts')!r}")
     expected_deleted = [
-        "TADDC", "TADDSC", "TFMA", "TFMOD", "TFMODS", "TLRELU", "TRANDOM", "TSUBC", "TSUBSC"
+        "ACCCVT", "TADDC", "TADDSC", "TALLOC", "TAXPY", "TDEINTERLEAVE",
+        "TFMOD", "TFMODS", "TFREE", "TGATHERB", "TINTERLEAVE", "TLRELU",
+        "TPARTARGMAX", "TPARTARGMIN", "TPOP", "TPRELU", "TPUSH", "TRANDOM",
+        "TRESHAPE", "TSORT32", "TSUBC", "TSUBSC"
     ]
     if sorted(operations.get("deleted_names", [])) != expected_deleted:
         raise ValueError(f"unexpected deleted PTO operations: {operations.get('deleted_names')!r}")
@@ -969,7 +982,7 @@ def load_locked_linxisa_entries(
             f"actual={sorted(present_non_pto_commands)!r}"
         )
     entries = [
-        _entry_from_linx_instruction(insn)
+        _entry_from_linx_instruction(insn, source_profile=release)
         for insn in isa.get("instructions", [])
         if str(insn.get("uop_group", "")) not in {"CMD", "BBD"}
         or str(insn.get("mnemonic", "")) in non_pto_command_mnemonics
@@ -985,12 +998,13 @@ def load_locked_linxisa_entries(
         "B.CATR": {(0xFBF07FFF, 0x00000023)},
         "B.DATR": {(0x000C707F, 0x00001023)},
         "B.IOT": {
-            (0xFC00787F, 0x00005013),
+            (0xFC00707F, 0x00005013),
+            (0x00007E7F, 0x00004013),
             (0x0000707F, 0x00004013),
-            (0xFC07FBFF, 0x00005013),
-            (0xFFF07C7F, 0x00006013),
-            (0x0007F3FF, 0x00004013),
+            (0xFC007E7F, 0x00005013),
+            (0xFFF0707F, 0x00006013),
         },
+        "B.IOS": {(0xF00871FF, 0x00001013)},
     }
     for mnemonic, expected_encodings in exact_command_encodings.items():
         observed_encodings = {
@@ -1007,11 +1021,24 @@ def load_locked_linxisa_entries(
     operation_by_command = {
         str(operation.get("command_mnemonic")): operation
         for operation in operations["operations"]
-        if operation.get("family") in {"TMA", "CUBE"}
+        if operation.get("family") in {"TLSU", "CUBE"}
     }
     for form in forms:
         command_mnemonic = str(form["mnemonic"])
         if command_mnemonic == "BSTART.TEPL":
+            continue
+        if command_mnemonic == "C.B.DIMI":
+            base_mask = int(str(form["encoding"][0]["mask"]), 0)
+            base_match = int(str(form["encoding"][0]["match"]), 0)
+            for loop_nest in range(3):
+                entries.append(
+                    _entry_from_command_form(
+                        form,
+                        mask=base_mask | (0x3 << 14),
+                        match=base_match | (loop_nest << 14),
+                        source_profile=release,
+                    )
+                )
             continue
         if command_mnemonic in {"C.BSTART.STD", "C.BSTART.FP"}:
             base_mask = int(str(form["encoding"][0]["mask"]), 0)
@@ -1028,6 +1055,7 @@ def load_locked_linxisa_entries(
                         ),
                         mask=base_mask | (0x7 << 11),
                         match=base_match | (br_type << 11),
+                        source_profile=release,
                     )
                 )
             continue
@@ -1045,6 +1073,7 @@ def load_locked_linxisa_entries(
                 operation_family=family,
                 operation_name=str(operation.get("name", "")) if operation else "",
                 imm_kind_override=command_imm_kind,
+                source_profile=release,
             )
         )
     for operation in operations["operations"]:
@@ -1062,6 +1091,7 @@ def load_locked_linxisa_entries(
                 symbol_override="OP_BSTART_TEPL",
                 operation_family="TEPL",
                 operation_name=str(operation["name"]),
+                source_profile=release,
             )
         )
     metadata: dict[str, object] = {
@@ -1158,8 +1188,13 @@ def _build_catalog_from_entries(
         sym_to_cat.setdefault(symbol, OP_ID_CATEGORY_OVERRIDES.get(symbol, r["major_cat"]))
 
     appended_symbols = set(APPENDED_NON_PTO_OPCODE_SYMBOLS)
+    fixed_symbols = set(OP_ID_FIXED_OVERRIDES)
     ordered_symbols = sorted(
-        (symbol for symbol in sym_to_cat if symbol not in appended_symbols),
+        (
+            symbol
+            for symbol in sym_to_cat
+            if symbol not in appended_symbols and symbol not in fixed_symbols
+        ),
         key=lambda s: (
             CATEGORY_ORDER.index(sym_to_cat[s]) if sym_to_cat[s] in CATEGORY_ORDER else len(CATEGORY_ORDER),
             s,
@@ -1170,7 +1205,15 @@ def _build_catalog_from_entries(
         for symbol in APPENDED_NON_PTO_OPCODE_SYMBOLS
         if symbol in sym_to_cat
     )
-    sym_to_id = {sym: idx + 1 for idx, sym in enumerate(ordered_symbols)}
+    reserved_ids = set(OP_ID_FIXED_OVERRIDES.values())
+    sym_to_id: dict[str, int] = {}
+    next_id = 1
+    for symbol in ordered_symbols:
+        while next_id in reserved_ids:
+            next_id += 1
+        sym_to_id[symbol] = next_id
+        next_id += 1
+    sym_to_id.update(OP_ID_FIXED_OVERRIDES)
     sym_to_id["OP_INVALID"] = 0
 
     for r in records:
@@ -1193,7 +1236,7 @@ def build_catalog_from_entries(entries: list[DecodeEntry]) -> Dict[str, object]:
 
 
 def build_locked_catalog(
-    linxisa_root: Path | None = None, *, profile: str = "v0.57"
+    linxisa_root: Path | None = None, *, profile: str = "v0.58"
 ) -> Dict[str, object]:
     entries, metadata = load_locked_linxisa_entries(linxisa_root, profile=profile)
     return _build_catalog_from_entries(entries, source_metadata=metadata)

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-ISA_PROFILE="${LINXCORE_ISA_PROFILE:-v0.57}"
+ISA_PROFILE="${LINXCORE_ISA_PROFILE:-v0.58}"
 
 if [[ -n "${LINXISA_ROOT:-}" ]]; then
   :

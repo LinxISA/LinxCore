@@ -5,8 +5,9 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/tools/lib/workspace_paths.sh"
 LINXISA_ROOT="${LINXISA_ROOT:-${LINXISA_DIR:-$(linxcore_resolve_linxisa_root "${ROOT_DIR}" || true)}}"
 
-if [[ ! -d "${LINXISA_ROOT}/isa/v0.57" ]]; then
-  echo "error: locked LinxISA v0.57 snapshot not found under: ${LINXISA_ROOT}" >&2
+ISA_PROFILE="${LINXCORE_ISA_PROFILE:-v0.58}"
+if [[ ! -d "${LINXISA_ROOT}/isa/${ISA_PROFILE}" ]]; then
+  echo "error: locked LinxISA ${ISA_PROFILE} snapshot not found under: ${LINXISA_ROOT}" >&2
   echo "hint: set LINXISA_ROOT=/abs/path/to/linx-isa" >&2
   exit 1
 fi
@@ -18,7 +19,6 @@ if [[ ! -d "${PYC_ROOT}" ]]; then
   exit 1
 fi
 CALLFRAME_SIZE_RAW="${LINXCORE_CALLFRAME_SIZE:-0}"
-ISA_PROFILE="${LINXCORE_ISA_PROFILE:-v0.57}"
 CALLFRAME_SIZE="$(
 python3 - <<'PY' "${CALLFRAME_SIZE_RAW}"
 import sys

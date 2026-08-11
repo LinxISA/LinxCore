@@ -14,6 +14,8 @@ from pycircuit.dsl import Signal
 from common.exec_uop import ExecOut, build_linxcore_exec_uop_comb
 from common.isa import (
     OP_BIOR,
+    OP_B_IOS,
+    OP_B_IOT,
     BK_CALL,
     BK_COND,
     BK_DIRECT,
@@ -2869,6 +2871,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     cmd_op = cmd_uop_op
     cmd_kind = c(0, width=3)
     cmd_kind = cmd_op.__eq__(c(OP_BIOR, width=12))._select_internal(c(1, width=3), cmd_kind)
+    cmd_kind = cmd_op.__eq__(c(OP_B_IOT, width=12))._select_internal(c(2, width=3), cmd_kind)
+    cmd_kind = cmd_op.__eq__(c(OP_B_IOS, width=12))._select_internal(c(3, width=3), cmd_kind)
     cmd_payload = cmd_payload_lane
     cmd_tile = cmd_payload._trunc(width=6)
     cmd_src_rob = cmd_uop_rob

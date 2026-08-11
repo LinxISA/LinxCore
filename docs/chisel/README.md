@@ -59,6 +59,14 @@ Current phase:
   dispatch/IEX/fast residency, frontend acknowledgement, and CTU leases under
   one retained prepare/apply/rebuild transaction. Production-top promotion
   remains gated on O8/O9 closure.
+- Tile binding state: `LocalTileRename` owns independent per-PE T/U/M/N hand
+  rings, generation-qualified producer tags, capacity charge, ready, and
+  release. `SharedTileState` owns the Core-private S0..S255 allocation and
+  descriptor metadata, enforces the fixed PE-mask mapping, and emits one
+  commit pulse only after every selected payload lane is ready. The Python RTL
+  command path carries exact B.IOT/B.IOS descriptors through CMD IQ/BISQ;
+  engine payload-bank wiring consumes these ownership contracts in the later
+  production-top promotion.
 - LSU recovery and drain integration: first STQ flush-prune consumer, state
   bank, store-commit queue, and memory-side commit drain boundary started
 - Phase 1 top shell: `LinxCoreTop` wraps the monitored reduced ROB so top
