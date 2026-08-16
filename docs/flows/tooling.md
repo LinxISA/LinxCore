@@ -199,6 +199,11 @@ python3 /Users/zhoubot/LinxCore/tools/generate/check_decode_parity.py
 bash /Users/zhoubot/LinxCore/tests/test_opcode_parity.sh
 ```
 
+`gen_opcode_tables.py` owns only LinxCore's Python opcode IDs and metadata.
+QEMU keeps its stable checked-in C ID/metadata tables in the QEMU repository;
+`check_decode_parity.py` and the superproject strict metadata gate validate that
+consumer without allowing LinxCore regeneration to overwrite it.
+
 ## Simulator Wall-Time Measurement
 
 ```bash
