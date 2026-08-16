@@ -1,4 +1,4 @@
-# LinxCore v0.57 Verification Matrix
+# LinxCore v0.58.1 Verification Matrix
 
 This matrix ties LinxCore architecture intent to strict required gates.
 
@@ -169,8 +169,8 @@ Mandatory scenario families:
   for multiple same-block commands including duplicate-response rejection
 - CTU D3 parent/child reservation, child-before-final-row retirement and trace
   ordering, partial-expansion flush, and adjacent-boundary/BID allocation
-- target TEPL-to-TAU and FIXP unsupported paths fail explicitly until their
-  execution/completion owners are promoted
+- unsupported VEC/SFU catalog selections and FIXP paths fail explicitly until
+  their execution/completion owners are promoted
 - split-store identity, strong non-flush SCB admission, byte-granular
   nearest-older forwarding, response retry, and replay ordering
 - MDB same-BID inner recovery versus cross-BID head-taken nuke

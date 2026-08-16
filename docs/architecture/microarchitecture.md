@@ -1,8 +1,8 @@
-# LinxCore v0.57 Microarchitecture Contract
+# LinxCore v0.58.1 Microarchitecture Contract
 
 ## Baseline superscalar contract
 
-LinxCore is the canonical superscalar out-of-order core for LinxISA `v0.57`.
+LinxCore is the canonical superscalar out-of-order core for LinxISA `v0.58.1`.
 It retires precisely, executes out of order, and preserves a block-ordered
 architectural control model across scalar and engine-backed work.
 
@@ -22,7 +22,7 @@ the same ordering, recovery, and observability contracts.
 
 LinxCore must preserve the following architectural state classes:
 
-- scalar, control, and privilege state defined by LinxISA `v0.57`,
+- scalar, control, and privilege state defined by LinxISA `v0.58.1`,
 - CSR, trap, MMU, and interrupt-visible state,
 - block-visible architectural state for `BSTART`, `BSTOP`, and
   boundary-authoritative redirect,
@@ -1005,7 +1005,7 @@ Detailed recovery behavior remains documented in:
 
 - For block completion semantics, LinxCore follows the ISA-visible canonical
   block-type domain
-  `{STD, FP, SYS, MPAR, MSEQ, VPAR, VSEQ, TMA, CUBE, TEPL, FIXP}`.
+  `{STD, FP, SYS, MPAR, MSEQ, VPAR, VSEQ, TLSU, CUBE, VEC, SFU, FIXP}`.
 - `STD`, `FP`, and `SYS` are equivalent in the two-layer completion model.
 - Dynamic block instances collapse to exactly one of three architectural
   participant sets:
@@ -1026,9 +1026,9 @@ Normative block-type routing is:
 |---|---|---|
 | `STD`, `FP`, `SYS` | scalar path | promoted |
 | `MPAR`, `MSEQ`, `VPAR`, `VSEQ` | target `VEC` | canonical route; current pyCircuit facade is reduced |
-| `TMA` | TMA command/completion frontend; shared CSU/L2 transport | target split; reduced facade current |
+| `TLSU` | TLSU command/completion frontend; shared CSU/L2 transport | target split; reduced facade current |
 | `CUBE` | target `CUBE` | canonical boundary; current pyCircuit facade is reduced |
-| `TEPL` | target `TAU` typed tile-to-tile operation selected by `TileOpcode` | unsupported until TileOpcode/descriptor/completion behavior is promoted |
+| `VEC`, `SFU` | TEPL-carried operation selected by Mode/Function and catalogued engine | unsupported until descriptor/completion behavior is promoted |
 | `FIXP` | no owner | unsupported until a completion owner is promoted |
 | `FENTRY`, `FEXIT`, `FRET.*` | CTU-expanded scalar child group | `{scalar}`, `needs_engine=0`; scalar done when the final template row is eligible after all children |
 
@@ -1095,7 +1095,7 @@ owners are not yet proven complete by the reduced RTL paths.
 ## MMU contract (LC-MA-MMU-001)
 
 - Translation success and failure must produce deterministic trap envelopes.
-- MMU behavior must remain aligned with the `v0.57` privileged contract wording.
+- MMU behavior must remain aligned with the `v0.58.1` privileged contract wording.
 - MMU fault paths must preserve precise retirement and recovery ordering.
 
 ## Interrupt contract (LC-MA-IRQ-001)
@@ -1809,20 +1809,23 @@ Detailed ordering behavior remains documented in:
   block-engine completion model.
 - Engine-local work must not create hidden global-memory side effects outside
   architecturally visible memory operations and committed block boundaries.
-- `TAU` is the typed tile-to-tile template/tile-operation engine. It must keep
-  memory access tile-to-tile and must not be described as a generic tensor or
-  auxiliary memory engine.
+- The Tile execution engines are exactly `VEC`, `SFU`, `TLSU`, and `CUBE`.
+- `TEPL` is the unchanged Mode/Function encoding carrier for `VEC` and `SFU`;
+  it is not an execution engine.
+- Legacy `tma` and `tau` source names are compatibility artifacts and do not
+  establish architectural engines or ownership.
 
 ### Workload-engine composition
 
 - `VEC` remains the general programmable SIMT compute engine.
-- `TMA` integrates into LinxCore through the same block/BID contract as the
-  rest of the machine. TMA owns the Tile Memory Access command/completion
+- `TLSU` integrates into LinxCore through the same block/BID contract as the
+  rest of the machine. TLSU owns the Tile Load/Store command/completion
   frontend; its architectural southbound memory transport terminates at the
   shared CSU/L2 boundary. That target owner is not yet promoted here, and
-  `src/tma/tma.py` remains a reduced compatibility facade.
-- `CUBE` and `TAU` continue to integrate through the same block/BID contract
-  as peer engines.
+  `src/tma/tma.py` remains a reduced compatibility facade whose filename is
+  not an architectural term.
+- `CUBE`, `VEC`, and `SFU` integrate through the same block/BID contract as
+  peer engines. TEPL remains only the VEC/SFU encoding carrier.
 - Engine issue, completion, exception, and flush behavior must remain visible
   to ROB, BROB, and trace machinery through the canonical interfaces.
 

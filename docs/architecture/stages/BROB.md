@@ -36,7 +36,7 @@ recovery, or stale-response-safe BID reuse.
 - `BROB_COMPLETE_PER_CYCLE` default: 1
 - `BROB_RETIRE_PER_CYCLE` default: 1
 - `N_NONSCALAR_ENGINE` (non-scalar completion sources). Default promoted list:
-  4 (`vec, tma, cube, tau`); deferred types such as TEPL/FIXP require an
+  4 (`vec, sfu, tlsu, cube`); unsupported catalog selections and FIXP require an
   explicit owner before inclusion.
 
 Derived:

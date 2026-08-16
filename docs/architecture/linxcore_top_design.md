@@ -159,8 +159,12 @@ canonical microarchitecture contract and must not be redefined here.
 
 ## Engine composition
 
-The top-level composition integrates `VEC`, `TMA`, `CUBE`, `TAU`, and the TMU
-subsystems under the same block/BID retirement model as scalar work.
+The top-level composition integrates the `VEC`, `SFU`, `TLSU`, and `CUBE`
+execution engines plus the TMU subsystems under the same block/BID retirement
+model as scalar work.
+
+`TEPL` is the VEC/SFU Mode/Function encoding carrier, not another engine.
+Legacy `tma` and `tau` module names are implementation compatibility artifacts.
 
 No engine defines a second architectural command or retirement machine. Engine
 issue, completion, exception, and flush behavior must remain visible through

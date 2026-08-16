@@ -61,13 +61,14 @@ result stage by its pipe when the `E` alignment is not obvious, for example
 ### Non-scalar engines (default promoted set; parameterized)
 
 - `eng_vec`
-- `eng_tma`
+- `eng_sfu`
+- `eng_tlsu`
 - `eng_cube`
-- `eng_tau`
 
 Note: the number of promoted non-scalar completion sources is
 DSE-parameterized (`N_NONSCALAR_ENGINE`, default 4). Scalar boundary completion
-is a separate source.
+is a separate source. Legacy `eng_tma` and `eng_tau` spellings may survive at
+compatibility adapters, but they do not name architectural engines.
 
 ## 2) Interface signal naming
 
@@ -117,7 +118,7 @@ Examples:
 - `BROB_ALLOC_PER_CYCLE` default: 1
 - `BROB_COMPLETE_PER_CYCLE` default: 1
 - `BROB_RETIRE_PER_CYCLE` default: 1
-- `N_NONSCALAR_ENGINE` default: 4 (`vec`, `tma`, `cube`, `tau`)
+- `N_NONSCALAR_ENGINE` default: 4 (`vec`, `sfu`, `tlsu`, `cube`)
 
 Derived widths:
 
