@@ -12,6 +12,7 @@ from common.isa import (
     BK_IND,
     BK_RET,
     OP_BSTART_MSEQ,
+    OP_BSTART_ICALL,
     OP_BSTART_STD_CALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
@@ -109,6 +110,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
             OP_C_BSTART_DIRECT,
             OP_C_BSTART_MSEQ,
             OP_BSTART_MSEQ,
+            OP_BSTART_ICALL,
             OP_BSTART_STD_FALL,
             OP_BSTART_STD_DIRECT,
             OP_BSTART_STD_COND,
@@ -131,6 +133,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
                 OP_C_BSTART_DIRECT,
                 OP_C_BSTART_MSEQ,
                 OP_BSTART_MSEQ,
+                OP_BSTART_ICALL,
                 OP_BSTART_STD_FALL,
                 OP_BSTART_STD_DIRECT,
                 OP_BSTART_STD_COND,
@@ -145,6 +148,7 @@ def build_decode_stage(m: Circuit, *, dispatch_w: int = 4) -> None:
         boundary_kind = op.__eq__(c(OP_BSTART_STD_DIRECT, width=12))._select_internal(c(BK_DIRECT, width=3), boundary_kind)
         boundary_kind = op.__eq__(c(OP_BSTART_STD_COND, width=12))._select_internal(c(BK_COND, width=3), boundary_kind)
         boundary_kind = op.__eq__(c(OP_BSTART_STD_CALL, width=12))._select_internal(c(BK_CALL, width=3), boundary_kind)
+        boundary_kind = op.__eq__(c(OP_BSTART_ICALL, width=12))._select_internal(c(BK_ICALL, width=3), boundary_kind)
         brtype = imm._trunc(width=3)
         boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(0, width=3)))._select_internal(c(BK_FALL, width=3), boundary_kind)
         boundary_kind = (op.__eq__(c(OP_C_BSTART_STD, width=12)) & brtype.__eq__(c(2, width=3)))._select_internal(c(BK_DIRECT, width=3), boundary_kind)

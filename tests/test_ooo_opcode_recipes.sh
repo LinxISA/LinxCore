@@ -23,7 +23,7 @@ import sys
 catalog = json.load(open(sys.argv[1], encoding="utf-8"))
 assert catalog["version"] == 2
 rows = catalog["records"]
-assert len(rows) == 865
+assert len(rows) == 864
 allowed = {"DISPATCH", "FAST_RESOLVE", "CTU", "ILLEGAL"}
 assert all(row["ooo"]["disposition"] in allowed for row in rows)
 assert all(
@@ -37,7 +37,9 @@ for row in rows:
     by_symbol.setdefault(row["symbol"], row["ooo"])
 
 assert by_symbol["OP_C_BSTOP"]["fast_resolve_class"] == "BOUNDARY_METADATA"
-assert by_symbol["OP_START_CALL_32"]["fast_resolve_class"] == "CONTROL_VALUE_PRODUCER"
+assert by_symbol["OP_BSTART_ICALL"]["fast_resolve_class"] == "CONTROL_VALUE_PRODUCER"
+assert by_symbol["OP_BSTART_ICALL"]["implicit_destination"] == "RA"
+assert by_symbol["OP_BSTART_ICALL"]["requires_target_validation"] is True
 assert by_symbol["OP_SETRET"]["fast_resolve_class"] == "IMMEDIATE_PRODUCER"
 assert by_symbol["OP_FENTRY"]["disposition"] == "CTU"
 assert by_symbol["OP_MCOPY"]["disposition"] == "ILLEGAL"
@@ -73,4 +75,4 @@ assert tepl_carrier["flags"] == "DECODE_ONLY_CARRIER"
 assert tepl_carrier["ooo"]["recipe_kind"] == "ENGINE_CMD"
 PY
 
-echo "ooo-opcode-recipes: pass records=865 deterministic=yes"
+echo "ooo-opcode-recipes: pass records=864 deterministic=yes"

@@ -50,6 +50,7 @@ python3 "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
   --linxcore-common "${ROOT_DIR}/src/common" \
   --no-qemu-output
+python3 "${ROOT_DIR}/tools/chisel/gen_frontend_decode_table.py"
 python3 "${ROOT_DIR}/tools/chisel/gen_ooo_recipe_table.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
   --scala-out "${ROOT_DIR}/chisel/src/main/scala/linxcore/ooo/OooOpcodeRecipeTable.scala" \

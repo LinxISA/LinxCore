@@ -24,10 +24,8 @@ object ISideBoundaryTargetDecode {
     */
   def isControlFlowStart(meta: FrontendOpcodeMeta, p: InterfaceParams): Bool =
     Seq(
-      FrontendOpcodeDecodeTable.OP_BSTART_FP_CALL,
       FrontendOpcodeDecodeTable.OP_BSTART_FP_COND,
       FrontendOpcodeDecodeTable.OP_BSTART_FP_DIRECT,
-      FrontendOpcodeDecodeTable.OP_BSTART_FP_ICALL,
       FrontendOpcodeDecodeTable.OP_BSTART_FP_IND,
       FrontendOpcodeDecodeTable.OP_BSTART_FP_RET,
       FrontendOpcodeDecodeTable.OP_BSTART_ICALL,

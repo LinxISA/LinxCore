@@ -3,6 +3,7 @@ from __future__ import annotations
 from pycircuit import Circuit, function, module
 
 from common.isa import (
+    OP_BSTART_ICALL,
     OP_BSTART_STD_CALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
@@ -29,6 +30,7 @@ def is_start_marker_op(op, op_is):
     return op_is(
         op,
         OP_C_BSTART_STD,
+        OP_BSTART_ICALL,
         OP_C_BSTART_COND,
         OP_C_BSTART_DIRECT,
         OP_BSTART_STD_FALL,

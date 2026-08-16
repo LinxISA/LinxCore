@@ -3,6 +3,7 @@ from __future__ import annotations
 from pycircuit import Circuit, module
 
 from common.isa import (
+    OP_BSTART_ICALL,
     OP_BSTART_STD_CALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
@@ -39,6 +40,7 @@ def build_janus_bcc_ooo_dec2(m: Circuit) -> None:
     is_macro_d2 = is_macro_d2 | (op_d2 == c(OP_FRET_RA, width=12)) | (op_d2 == c(OP_FRET_STK, width=12))
     is_bstart_d2 = (
         (op_d2 == c(OP_C_BSTART_STD, width=12))
+        | (op_d2 == c(OP_BSTART_ICALL, width=12))
         | (op_d2 == c(OP_C_BSTART_COND, width=12))
         | (op_d2 == c(OP_C_BSTART_DIRECT, width=12))
         | (op_d2 == c(OP_BSTART_STD_FALL, width=12))

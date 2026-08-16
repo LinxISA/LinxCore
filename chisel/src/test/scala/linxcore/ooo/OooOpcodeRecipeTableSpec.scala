@@ -22,9 +22,9 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
       fail(s"missing generated recipe rule for $symbol"))
 
   test("generated recipes classify every encoded catalog form and fail closed explicitly") {
-    assert(OooOpcodeRecipeTable.CatalogRecordCount == 865)
-    assert(OooOpcodeRecipeTable.DecodeRuleCount == 863)
-    assert(OooOpcodeRecipeTable.OpcodeCount == 736)
+    assert(OooOpcodeRecipeTable.CatalogRecordCount == 864)
+    assert(OooOpcodeRecipeTable.DecodeRuleCount == 862)
+    assert(OooOpcodeRecipeTable.OpcodeCount == 735)
     assert(OooOpcodeRecipeTable.Rules.size == OooOpcodeRecipeTable.DecodeRuleCount)
     val catalogOnlyRecordCount = OooOpcodeRecipeTable.CatalogRecordCount -
       OooOpcodeRecipeTable.DecodeRuleCount
@@ -66,8 +66,9 @@ class OooOpcodeRecipeTableSpec extends AnyFunSuite with ChiselSim {
     assert(rule("OP_HL_SDP").pSourceCount == 4)
     assert(rule("OP_HL_SDIP").dispatchDemand(OooDispatchClass.Agu - 1) == 1)
     assert(rule("OP_HL_SDIP").dispatchDemand(OooDispatchClass.Std - 1) == 1)
-    assert(rule("OP_START_CALL_32").fastResolveClass == OooFastResolveClass.ControlValueProducer)
-    assert(rule("OP_START_CALL_48").fastResolveClass == OooFastResolveClass.ControlValueProducer)
+    assert(rule("OP_BSTART_ICALL").fastResolveClass == OooFastResolveClass.ControlValueProducer)
+    assert(rule("OP_BSTART_ICALL").implicitDestination == OooImplicitDestination.Ra)
+    assert(rule("OP_BSTART_ICALL").requiresTargetValidation)
     assert(rule("OP_SETRET").fastResolveClass == OooFastResolveClass.ImmediateProducer)
     assert(rule("OP_C_SETRET").fastResolveClass == OooFastResolveClass.ImmediateProducer)
     assert(rule("OP_HL_SETRET").fastResolveClass == OooFastResolveClass.ImmediateProducer)

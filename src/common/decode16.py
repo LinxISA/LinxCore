@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .opcode_meta_gen import OPCODE_META_FORMS, OpcodeMeta
+from .opcode_meta_gen import OPCODE_META_FORMS, OpcodeMeta, opcode_constraints_match
 
 
 _DECODE16 = tuple(m for m in OPCODE_META_FORMS if m.source_file == "insn16.decode")
@@ -12,6 +12,8 @@ def decode16_meta(insn: int) -> OpcodeMeta | None:
     best_bits = -1
     for meta in _DECODE16:
         if (word & meta.mask) != meta.match:
+            continue
+        if not opcode_constraints_match(word, meta):
             continue
         bits = int(meta.mask).bit_count()
         if bits > best_bits:

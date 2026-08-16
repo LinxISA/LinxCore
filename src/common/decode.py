@@ -37,6 +37,8 @@ from .isa import (
     OP_BIOR,
     OP_B_IOS,
     OP_B_IOT,
+    OP_B_FPATR,
+    OP_BSTART_ICALL,
     OP_BTEXT,
     OP_ANDW,
     OP_BXS,
@@ -1073,6 +1075,60 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
         imm_v=ios_descriptor,
     )
 
+    prequant_mode = insn32[26:32]
+    relu_mode = insn32[23:26]
+    group_n_code = insn32[19:23]
+    prequant_valid = prequant_mode.__eq__(0)
+    for value in (1, 2, 3, 4, 5, 12, 13, 16, 17, 18, 19, 20, 23, 24, 25, 26, 27, 28, 32, 33, 34, 35, 36, 37, 38, 39):
+        prequant_valid = prequant_valid | prequant_mode.__eq__(value)
+    relu_valid = relu_mode.__eq__(0) | relu_mode.__eq__(1) | relu_mode.__eq__(2) | relu_mode.__eq__(3)
+    group_n_valid = group_n_code.__eq__(0)
+    for value in range(1, 10):
+        group_n_valid = group_n_valid | group_n_code.__eq__(value)
+    cond = (
+        in32
+        & masked_eq(m, insn32, mask=0x00007FFF, match=0x00002023)
+        & prequant_valid
+        & relu_valid
+        & group_n_valid
+    )
+    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(
+        m,
+        cond,
+        op,
+        len_bytes,
+        regdst,
+        srcl,
+        srcr,
+        srcr_type,
+        shamt,
+        srcp,
+        imm,
+        op_v=OP_B_FPATR,
+        len_v=4,
+        regdst_v=REG_INVALID,
+        imm_v=insn32[15:32]._zext(width=64),
+    )
+
+    cond = in32 & masked_eq(m, insn32, mask=0xF83FFFFF, match=0x50166001)
+    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(
+        m,
+        cond,
+        op,
+        len_bytes,
+        regdst,
+        srcl,
+        srcr,
+        srcr_type,
+        shamt,
+        srcp,
+        imm,
+        op_v=OP_BSTART_ICALL,
+        len_v=4,
+        regdst_v=REG_INVALID,
+        imm_v=insn32[22:27]._zext(width=64),
+    )
+
     cond = in32 & masked_eq(m, insn32, mask=0x00007FFF, match=0x00001001)
     (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_BSTART_STD_FALL, len_v=4, regdst_v=REG_INVALID)
 
@@ -1082,13 +1138,10 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
     cond = in32 & masked_eq(m, insn32, mask=0x00007FFF, match=0x00003001)
     (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_BSTART_STD_COND, len_v=4, regdst_v=REG_INVALID, imm_v=simm17_s64.shl(amount=1))
 
-    # BSTART.STD IND/ICALL/RET: no embedded target; requires SETC.TGT within the block.
+    # BSTART.STD IND/RET: no embedded target; requires SETC.TGT within the block.
     # For these, reuse OP_C_BSTART_STD internal op and carry BrType in `imm`.
     cond = in32 & masked_eq(m, insn32, mask=0x00007FFF, match=0x00005001)
     (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_BSTART_STD, len_v=4, regdst_v=REG_INVALID, imm_v=5)
-
-    cond = in32 & masked_eq(m, insn32, mask=0x00007FFF, match=0x00006001)
-    (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_BSTART_STD, len_v=4, regdst_v=REG_INVALID, imm_v=6)
 
     cond = in32 & masked_eq(m, insn32, mask=0x00007FFF, match=0x00007001)
     (op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm) = _decode_set_if(m, cond, op, len_bytes, regdst, srcl, srcr, srcr_type, shamt, srcp, imm, op_v=OP_C_BSTART_STD, len_v=4, regdst_v=REG_INVALID, imm_v=7)

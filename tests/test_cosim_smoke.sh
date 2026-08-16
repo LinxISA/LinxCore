@@ -8,6 +8,7 @@ QEMU_BIN="${QEMU_BIN:-${LINX_ROOT}/emulator/qemu/build/qemu-system-linx64}"
 SRC="${SRC:-${LINX_ROOT}/emulator/qemu/tests/linxisa/commit_trace_smoke.s}"
 TMP_DIR="$(mktemp -d -t linxcore_cosim_smoke.XXXXXX)"
 OBJ="${TMP_DIR}/commit_trace_smoke.o"
+SOCKET="${TMP_DIR}/linxcore.sock"
 
 cleanup() {
   rm -rf "${TMP_DIR}"
@@ -29,6 +30,7 @@ fi
 bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
   --qemu-bin "${QEMU_BIN}" \
   --elf "${OBJ}" \
+  --socket "${SOCKET}" \
   --boot-pc 0x10000 \
   --trigger-pc 0x10000 \
   --terminate-pc 0x10022 \
@@ -41,6 +43,7 @@ bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
 if bash "${ROOT_DIR}/tools/qemu/run_cosim_lockstep.sh" \
   --qemu-bin "${QEMU_BIN}" \
   --elf "${OBJ}" \
+  --socket "${SOCKET}" \
   --boot-pc 0x10000 \
   --trigger-pc 0x10000 \
   --terminate-pc 0x10022 \
