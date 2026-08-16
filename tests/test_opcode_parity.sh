@@ -40,9 +40,7 @@ python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" "${extract_ar
 
 python3 "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
-  --linxcore-common "${ROOT_DIR}/src/common" \
-  --qemu-linx-dir "${QEMU_LINX_DIR}" \
-  --no-qemu-output
+  --linxcore-common "${ROOT_DIR}/src/common"
 
 python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" "${parity_args[@]}"
 

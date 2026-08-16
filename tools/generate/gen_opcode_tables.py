@@ -159,84 +159,12 @@ def _emit_py_meta(out: Path, records: list[dict]) -> None:
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _emit_qemu_ids(out: Path, symbol_to_id: OrderedDict[str, int]) -> None:
-    lines: list[str] = []
-    lines.append("/* AUTO-GENERATED FILE. DO NOT EDIT. */")
-    lines.append("#ifndef LINX_OPCODE_IDS_GEN_H")
-    lines.append("#define LINX_OPCODE_IDS_GEN_H")
-    lines.append("")
-    lines.append("typedef enum LinxOpcodeId {")
-    for sym, sid in symbol_to_id.items():
-        c_sym = sym.replace("OP_", "LINX_OP_")
-        lines.append(f"    {c_sym} = {sid},")
-    lines.append("} LinxOpcodeId;")
-    lines.append("")
-    lines.append("#endif /* LINX_OPCODE_IDS_GEN_H */")
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _emit_qemu_meta(out: Path, records: list[dict]) -> None:
-    lines: list[str] = []
-    lines.append("/* AUTO-GENERATED FILE. DO NOT EDIT. */")
-    lines.append("#ifndef LINX_OPCODE_META_GEN_H")
-    lines.append("#define LINX_OPCODE_META_GEN_H")
-    lines.append("")
-    lines.append("#include <stdint.h>")
-    lines.append("#include \"linx_opcode_ids_gen.h\"")
-    lines.append("")
-    lines.append("typedef struct LinxOpcodeMeta {")
-    lines.append("    uint16_t op_id;")
-    lines.append("    uint8_t major_cat;")
-    lines.append("    uint8_t insn_len;")
-    lines.append("    uint64_t mask;")
-    lines.append("    uint64_t match;")
-    lines.append("    const char *mnemonic;")
-    lines.append("    const char *minor_cat;")
-    lines.append("    const char *rd_kind;")
-    lines.append("    const char *rs1_kind;")
-    lines.append("    const char *rs2_kind;")
-    lines.append("    const char *imm_kind;")
-    lines.append("    const char *block_kind;")
-    lines.append("    const char *cmd_kind;")
-    lines.append("    const char *flags;")
-    lines.append("    const char *source_file;")
-    lines.append("} LinxOpcodeMeta;")
-    lines.append("")
-    lines.append("enum {")
-    for idx, cat in enumerate(CATEGORY_ORDER):
-        lines.append(f"    LINX_CAT_{cat} = {idx},")
-    lines.append("};")
-    lines.append("")
-    lines.append("static const LinxOpcodeMeta linx_opcode_meta_table[] = {")
-    for r in sorted(
-        records,
-        key=lambda x: (x["op_id"], x["mnemonic"], int(x.get("form_index", 0))),
-    ):
-        lines.append(
-            "    {{.op_id={op_id}, .major_cat=LINX_CAT_{major_cat}, .insn_len={enc_len}, .mask=UINT64_C({mask}), .match=UINT64_C({match}), "
-            ".mnemonic=\"{mnemonic}\", .minor_cat=\"{minor_cat}\", .rd_kind=\"{rd_kind}\", .rs1_kind=\"{rs1_kind}\", "
-            ".rs2_kind=\"{rs2_kind}\", .imm_kind=\"{imm_kind}\", .block_kind=\"{block_kind}\", .cmd_kind=\"{cmd_kind}\", .flags=\"{flags}\", .source_file=\"{source_file}\"}},".format(
-                **r
-            )
-        )
-    lines.append("};")
-    lines.append("")
-    lines.append("static const unsigned linx_opcode_meta_table_count = sizeof(linx_opcode_meta_table) / sizeof(linx_opcode_meta_table[0]);")
-    lines.append("")
-    lines.append("#endif /* LINX_OPCODE_META_GEN_H */")
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Generate LinxCore and QEMU opcode id/meta files from catalog")
+    ap = argparse.ArgumentParser(
+        description="Generate LinxCore opcode id/meta files from catalog"
+    )
     ap.add_argument("--catalog", default="/Users/zhoubot/LinxCore/src/common/opcode_catalog.yaml")
     ap.add_argument("--linxcore-common", default="/Users/zhoubot/LinxCore/src/common")
-    ap.add_argument("--qemu-linx-dir", default="/Users/zhoubot/qemu/target/linx")
-    ap.add_argument(
-        "--no-qemu-output",
-        action="store_true",
-        help="Only regenerate LinxCore Python metadata; leave QEMU generated headers untouched",
-    )
     args = ap.parse_args()
 
     catalog = load_catalog(Path(args.catalog))
@@ -251,22 +179,13 @@ def main() -> int:
             symbol_to_id[sym] = sid
 
     lc_dir = Path(args.linxcore_common)
-    qemu_dir = Path(args.qemu_linx_dir)
     lc_dir.mkdir(parents=True, exist_ok=True)
 
     _emit_py_ids(lc_dir / "opcode_ids_gen.py", symbol_to_id)
     _emit_py_meta(lc_dir / "opcode_meta_gen.py", records)
 
-    if not args.no_qemu_output:
-        qemu_dir.mkdir(parents=True, exist_ok=True)
-        _emit_qemu_ids(qemu_dir / "linx_opcode_ids_gen.h", symbol_to_id)
-        _emit_qemu_meta(qemu_dir / "linx_opcode_meta_gen.h", records)
-
     print(f"generated {lc_dir / 'opcode_ids_gen.py'}")
     print(f"generated {lc_dir / 'opcode_meta_gen.py'}")
-    if not args.no_qemu_output:
-        print(f"generated {qemu_dir / 'linx_opcode_ids_gen.h'}")
-        print(f"generated {qemu_dir / 'linx_opcode_meta_gen.h'}")
     return 0
 
 

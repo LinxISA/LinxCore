@@ -74,8 +74,6 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
                 str(catalog_path),
                 "--linxcore-common",
                 str(common),
-                "--qemu-linx-dir",
-                str(self.qemu),
             ],
             check=True,
             capture_output=True,
@@ -98,16 +96,40 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             len(module.opcode_meta_forms_by_id(forms[0].op_id)), 2
         )
 
-        qemu_meta = (self.qemu / "linx_opcode_meta_gen.h").read_text(
-            encoding="utf-8"
-        )
-        self.assertEqual(qemu_meta.count('.mnemonic="duplicate"'), 2)
+        self.assertFalse((self.qemu / "linx_opcode_ids_gen.h").exists())
+        self.assertFalse((self.qemu / "linx_opcode_meta_gen.h").exists())
 
         data = json.loads(catalog_path.read_text(encoding="utf-8"))
         self.assertEqual(
             len([r for r in data["records"] if r["mnemonic"] == "duplicate"]),
             2,
         )
+
+    def test_generator_rejects_foreign_qemu_output(self) -> None:
+        catalog_path = self.root / "opcode_catalog.yaml"
+        common = self.root / "common"
+        save_catalog(catalog_path, self._fixture_catalog())
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(GENERATE / "gen_opcode_tables.py"),
+                "--catalog",
+                str(catalog_path),
+                "--linxcore-common",
+                str(common),
+                "--qemu-linx-dir",
+                str(self.qemu),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized arguments: --qemu-linx-dir", result.stderr)
+        self.assertFalse((self.qemu / "linx_opcode_ids_gen.h").exists())
+        self.assertFalse((self.qemu / "linx_opcode_meta_gen.h").exists())
 
     def test_parity_rejects_a_mnemonic_collapsed_catalog(self) -> None:
         catalog = self._fixture_catalog()

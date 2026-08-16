@@ -48,8 +48,7 @@ parity_args=(
 python3 "${ROOT_DIR}/tools/generate/extract_qemu_opcode_matrix.py" "${extract_args[@]}"
 python3 "${ROOT_DIR}/tools/generate/gen_opcode_tables.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
-  --linxcore-common "${ROOT_DIR}/src/common" \
-  --no-qemu-output
+  --linxcore-common "${ROOT_DIR}/src/common"
 python3 "${ROOT_DIR}/tools/chisel/gen_frontend_decode_table.py"
 python3 "${ROOT_DIR}/tools/chisel/gen_ooo_recipe_table.py" \
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml" \
