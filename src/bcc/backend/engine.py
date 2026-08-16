@@ -22,6 +22,7 @@ from common.isa import (
     BK_FALL,
     BK_ICALL,
     BK_IND,
+    OP_BSTART_ICALL,
     OP_BTEXT,
     BK_RET,
     OP_BSTART_STD_COND,
@@ -325,6 +326,10 @@ def build_commit_select_stage(
         is_bstart_mid = is_bstart & (~block_head_live)
         is_start_marker = is_bstart_head | is_macro
         is_boundary = is_bstart_mid | is_bstop | is_macro
+        is_icall_start = is_bstart & op_is_any(m, op, OP_BSTART_ICALL) & \
+            (rob_boundary_kinds[slot] == u(3, BK_ICALL))
+        retiring_bpcn_valid = commit_cond_live
+        retiring_bpcn = commit_tgt_live
 
         br_is_fall = br_kind_live == u(3, BK_FALL)
         br_is_cond = br_kind_live == u(3, BK_COND)
@@ -353,6 +358,7 @@ def build_commit_select_stage(
         fire = can_run & commit_allow & rob_valids[slot] & rob_dones[slot]
         allow_macro = macro_commit_ready if slot == 0 else consts.zero1
         fire = fire & ((~is_macro) | allow_macro)
+        fire = fire & ((~is_icall_start) | retiring_bpcn_valid)
 
         # Template macro blocks must reach the head of the ROB.
         if slot != 0:
@@ -448,6 +454,9 @@ def build_commit_select_stage(
         br_pred_take_live = consts.zero1 if (fire & is_boundary & br_take_eff) else br_pred_take_live
 
         enter_new_block = fire & is_bstart & (~br_take_eff)
+        icall_enter = enter_new_block & is_icall_start
+        commit_tgt_live = retiring_bpcn if icall_enter else commit_tgt_live
+        commit_cond_live = retiring_bpcn_valid if icall_enter else commit_cond_live
         meta_off = rob_boundary_targets[slot] - pc_this
         br_kind_live = rob_boundary_kinds[slot] if enter_new_block else br_kind_live
         br_base_live = pc_this if enter_new_block else br_base_live
@@ -1784,6 +1793,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     disp_load_store_ids = []
     disp_is_setret = []
     disp_setret_vals = []
+    disp_is_icall = []
+    disp_fast_vals = []
     for slot in range(p.dispatch_w):
         disp_to_alu.append(dispatch_stage[f"to_alu{slot}"])
         disp_to_bru.append(dispatch_stage[f"to_bru{slot}"])
@@ -1803,8 +1814,15 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         disp_block_bids.append(dispatch_stage[f"disp_block_bid{slot}"])
         disp_load_store_ids.append(dispatch_stage[f"disp_load_store_id{slot}"])
         is_setret = op_is_any(m, disp_ops[slot], OP_SETRET, OP_C_SETRET)
+        is_icall = op_is_any(m, disp_ops[slot], OP_BSTART_ICALL)
         disp_is_setret.append(is_setret)
-        disp_setret_vals.append(disp_pcs[slot] + disp_imms[slot])
+        disp_is_icall.append(is_icall)
+        fast_value = is_icall._select_internal(
+            disp_pcs[slot] + u(64, 2) + disp_imms[slot],
+            disp_pcs[slot] + disp_imms[slot],
+        )
+        disp_setret_vals.append(fast_value)
+        disp_fast_vals.append(fast_value)
 
     # Source PTAGs from SMAP with intra-cycle rename forwarding across lanes.
     rename_stage_args = {"dispatch_fire": dispatch_fire}
@@ -1888,7 +1906,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     # as ready in the same cycle as allocation.
     setret_set_mask = u(p.pregs, 0)
     for slot in range(p.dispatch_w):
-        fire = disp_fires[slot] & disp_need_pdst[slot] & disp_is_setret[slot]
+        fire = disp_fires[slot] & disp_need_pdst[slot] & (disp_is_setret[slot] | disp_is_icall[slot])
         fire_mask = u(p.pregs, 0) - fire
         onehot = onehot_from_tag(m, tag=disp_pdsts[slot], width=p.pregs, tag_width=p.ptag_w)
         setret_set_mask = setret_set_mask | (onehot & fire_mask)
@@ -1912,7 +1930,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         setret_we = u(1, 0)
         setret_data = u(64, 0)
         for slot in range(p.dispatch_w):
-            fire = disp_fires[slot] & disp_need_pdst[slot] & disp_is_setret[slot]
+            fire = disp_fires[slot] & disp_need_pdst[slot] & (disp_is_setret[slot] | disp_is_icall[slot])
             hit = fire & (disp_pdsts[slot] == u(p.ptag_w, i))
             setret_we = setret_we | hit
             mask = u(64, 0) - hit
@@ -1960,6 +1978,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         imm_rob = (~bmask) & imm_rob
         smask = u(64, 0) - disp_is_setret[slot]
         imm_rob = (smask & disp_setret_vals[slot]) | (~smask & imm_rob)
+        imask = u(64, 0) - disp_is_icall[slot]
+        imm_rob = (imask & disp_fast_vals[slot]) | (~imask & imm_rob)
         m.assign(rob_bank_in[f"disp_imm{slot}"], imm_rob)
         m.assign(rob_bank_in[f"disp_is_store{slot}"], disp_is_store[slot])
         m.assign(rob_bank_in[f"disp_is_boundary{slot}"], disp_is_boundary[slot])
@@ -1972,7 +1992,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         m.assign(rob_bank_in[f"disp_block_uid{slot}"], disp_block_uids[slot])
         m.assign(rob_bank_in[f"disp_block_bid{slot}"], disp_block_bids[slot])
         m.assign(rob_bank_in[f"disp_load_store_id{slot}"], disp_load_store_ids[slot])
-        m.assign(rob_bank_in[f"disp_resolved_d2{slot}"], disp_resolved_d2[slot] | disp_is_setret[slot])
+        m.assign(
+            rob_bank_in[f"disp_resolved_d2{slot}"],
+            disp_resolved_d2[slot] | disp_is_setret[slot] | disp_is_icall[slot],
+        )
         m.assign(rob_bank_in[f"disp_srcl{slot}"], disp_srcls[slot])
         m.assign(rob_bank_in[f"disp_srcr{slot}"], disp_srcrs[slot])
         m.assign(rob_bank_in[f"disp_uop_uid{slot}"], disp_uop_uids[slot])

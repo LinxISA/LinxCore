@@ -1,7 +1,7 @@
 package linxcore.ooo
 
 import chisel3._
-import chisel3.util.{Decoupled, PopCount, PriorityEncoder, log2Ceil}
+import chisel3.util.{Decoupled, MuxCase, PopCount, PriorityEncoder, log2Ceil}
 import linxcore.common.InterfaceParams
 import linxcore.frontend.{
   D1InstructionGroup,
@@ -26,6 +26,9 @@ class OooIfuRawIngressIO(
   val selectStid = Input(UInt(oooP.stidWidth.W))
   /** Non-mutating recovery admission fence. Retained rows remain intact. */
   val fence = Input(Vec(oooP.stidCount, Bool()))
+  /** Retiring BARG snapshot captured with each accepted architectural row. */
+  val retiringBargBpcnValid = Input(Vec(oooP.stidCount, Bool()))
+  val retiringBargBpcn = Input(Vec(oooP.stidCount, UInt(oooP.pcWidth.W)))
   val out = Decoupled(new OooRawInstructionGroup(oooP))
   val flush = Input(new IfuInnerFlush(ifuP))
 
@@ -110,6 +113,12 @@ class OooIfuRawIngress(
     target.parent.prediction.epoch := source.prediction.epoch
     target.parent.traceOwner := true.B
     target.parent.preciseExceptionOwner := true.B
+    target.retiringBargBpcnValid := (0 until oooP.stidCount).map { stid =>
+      source.identity.threadId === stid.U && io.retiringBargBpcnValid(stid)
+    }.reduce(_ || _)
+    target.retiringBargBpcn := MuxCase(0.U, (0 until oooP.stidCount).map { stid =>
+      (source.identity.threadId === stid.U) -> io.retiringBargBpcn(stid)
+    })
     target.fetchFaultValid := false.B
     target.fetchFaultCause := 0.U
   }

@@ -1125,8 +1125,8 @@ def decode_window(m: Circuit, window: Wire) -> Decode:
         imm,
         op_v=OP_BSTART_ICALL,
         len_v=4,
-        regdst_v=REG_INVALID,
-        imm_v=insn32[22:27]._zext(width=64),
+        regdst_v=1,
+        imm_v=insn32[22:27]._zext(width=64).shl(amount=1),
     )
 
     cond = in32 & masked_eq(m, insn32, mask=0x00007FFF, match=0x00001001)

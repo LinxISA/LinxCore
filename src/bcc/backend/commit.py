@@ -10,6 +10,7 @@ from common.isa import (
     BK_IND,
     BK_RET,
     OP_BSTART_STD_CALL,
+    OP_BSTART_ICALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
     OP_BSTART_STD_FALL,
@@ -101,6 +102,7 @@ def build_commit_head_stage(m: Circuit) -> None:
             OP_BSTART_STD_DIRECT,
             OP_BSTART_STD_COND,
             OP_BSTART_STD_CALL,
+            OP_BSTART_ICALL,
         )
         | is_macro
     )

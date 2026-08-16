@@ -208,6 +208,51 @@ class OooD1DecodeSpec extends AnyFunSuite with ChiselSim {
     }
   }
 
+  test("normalizes fused ICALL as an explicit start with implicit RA and scaled return delta") {
+    val p = OooParams()
+    simulate(new OooD1Decode(p)) { dut =>
+      clear(dut)
+      val uimm5 = 13
+      val raw = encoded("OP_BSTART_ICALL", (26, 22, uimm5))
+      drive(dut, 0, "OP_BSTART_ICALL", raw, 29, 0x2900)
+      dut.io.in.bits.entries(0).retiringBargBpcnValid.poke(true.B)
+      dut.io.in.bits.entries(0).retiringBargBpcn.poke(0xabc0.U)
+      dut.io.in.bits.validMask.poke(1.U)
+      dut.io.in.valid.poke(true.B)
+
+      val uop = dut.io.out.bits.uops(0)
+      dut.io.out.bits.uopMask.expect(1.U)
+      uop.opcode.expect(rule("OP_BSTART_ICALL").opcode.U)
+      uop.destinations(0).valid.expect(true.B)
+      uop.destinations(0).kind.expect(DestinationKind.Gpr)
+      uop.destinations(0).atag.expect(1.U)
+      uop.immediateValid.expect(true.B)
+      uop.immediate.expect((uimm5 << 1).U)
+      uop.identity.boundary.start.expect(true.B)
+      uop.identity.boundary.explicit.expect(true.B)
+      uop.boundaryTargetValid.expect(true.B)
+      uop.boundaryTarget.expect(0xabc0.U)
+      uop.recipe.fastResolveClass.expect(
+        OooFastResolveClass.ControlValueProducer.U)
+    }
+  }
+
+  test("rejects fused ICALL without a retiring BARG BPCN snapshot") {
+    simulate(new OooD1Decode(OooParams())) { dut =>
+      clear(dut)
+      drive(dut, 0, "OP_BSTART_ICALL", rule("OP_BSTART_ICALL").value,
+        30, 0x2a00)
+      dut.io.in.bits.validMask.poke(1.U)
+      dut.io.in.valid.poke(true.B)
+
+      dut.io.out.bits.illegalParentMask.expect(1.U)
+      dut.io.out.bits.uops(0).preciseTrap.expect(true.B)
+      dut.io.out.bits.uops(0).trapCause.expect(
+        OooD1TrapCause.MissingRetiringBargBpcn.U)
+      dut.io.out.bits.uops(0).boundaryTargetValid.expect(false.B)
+    }
+  }
+
   test("normalizes scalar load address controls before rename") {
     val p = OooParams()
     simulate(new OooD1Decode(p)) { dut =>

@@ -18,6 +18,8 @@ class OooIfuRawIngressSpec extends AnyFunSuite with ChiselSim {
     dut.io.ifuD1.bits.poke(0.U.asTypeOf(dut.io.ifuD1.bits))
     dut.io.selectStid.poke(0.U)
     dut.io.fence.foreach(_.poke(false.B))
+    dut.io.retiringBargBpcnValid.foreach(_.poke(false.B))
+    dut.io.retiringBargBpcn.foreach(_.poke(0.U))
     dut.io.out.ready.poke(false.B)
     dut.io.flush.poke(0.U.asTypeOf(dut.io.flush))
   }
@@ -81,6 +83,8 @@ class OooIfuRawIngressSpec extends AnyFunSuite with ChiselSim {
     val oooP = OooParams(instructionDecodeWidth = 2)
     simulate(new OooIfuRawIngress(ifuP, oooP, depthPerStid = 8)) { dut =>
       clear(dut)
+      dut.io.retiringBargBpcnValid(1).poke(true.B)
+      dut.io.retiringBargBpcn(1).poke(0x900.U)
       enqueue(dut, stid = 1, firstId = 10)
 
       dut.io.counts(1).expect(4.U)
@@ -105,6 +109,8 @@ class OooIfuRawIngressSpec extends AnyFunSuite with ChiselSim {
       first.parent.prediction.stage.expect(BSideStage.BF4.asUInt)
       first.parent.traceOwner.expect(true.B)
       first.parent.preciseExceptionOwner.expect(true.B)
+      first.retiringBargBpcnValid.expect(true.B)
+      first.retiringBargBpcn.expect(0x900.U)
 
       dut.clock.step(2)
       dut.io.out.bits.entries(0).parent.key.instructionId.expect(10.U)

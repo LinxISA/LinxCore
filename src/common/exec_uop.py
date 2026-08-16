@@ -409,6 +409,7 @@ def exec_uop_comb(
         | op_fret_stk
     )
     alu = is_marker._select_internal(imm, alu)
+    alu = op_bstart_icall._select_internal(pc + c(2, width=64) + imm, alu)
 
     # --- basic ALU ops ---
     alu = op_c_movr._select_internal(srcl_val, alu)
@@ -972,6 +973,14 @@ def exec_uop(
             | op_fret_stk
         ):
             alu = imm
+            is_load = z1
+            is_store = z1
+            size = z4
+            addr = z64
+            wdata = z64
+
+        if op_bstart_icall:
+            alu = pc + 2 + imm
             is_load = z1
             is_store = z1
             size = z4

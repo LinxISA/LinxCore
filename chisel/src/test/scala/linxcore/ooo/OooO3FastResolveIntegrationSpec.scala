@@ -1,11 +1,81 @@
 package linxcore.ooo
 
 import chisel3._
+import chisel3.util.Decoupled
 import chisel3.simulator.scalatest.ChiselSim
 import linxcore.common.DestinationKind
 import org.scalatest.funsuite.AnyFunSuite
 
+private class OooRawIcallPipelineIO(val p: OooParams) extends Bundle {
+  val raw = Flipped(Decoupled(new OooRawInstructionGroup(p)))
+  val fastReady = Input(Bool())
+  val preparedValid = Output(Bool())
+  val publishFire = Output(Bool())
+  val fastRejected = Output(Bool())
+  val fastTerminalFire = Output(Bool())
+  val fastWriteback = Decoupled(new OooFastResolveWriteback(p))
+  val fastBoundary = Decoupled(new OooFastResolveBoundaryRequest(p))
+}
+
+private class OooRawIcallPipeline(val p: OooParams) extends Module {
+  val io = IO(new OooRawIcallPipelineIO(p))
+
+  val d1 = Module(new OooD1Decode(p))
+  val d2 = Module(new OooD2GroupPlanner(p))
+  val o3 = Module(new OooO3RenameCoordinator(p))
+  d1.io.in <> io.raw
+  d2.io.in <> d1.io.out
+  d2.io.tailSlot := o3.io.d3TailSlot
+  d2.io.tailGeneration := o3.io.d3TailGeneration
+  d2.io.tailEpoch := o3.io.d3TailEpoch
+  d2.io.nextTransactionId := o3.io.d3NextTransactionId
+  o3.io.reserve <> d2.io.out
+
+  o3.io.cancel.foreach(_ := false.B)
+  o3.io.iexS1.ready := true.B
+  io.fastWriteback.valid := o3.io.fastWriteback.valid
+  io.fastWriteback.bits := o3.io.fastWriteback.bits
+  o3.io.fastWriteback.ready := io.fastWriteback.ready && io.fastReady
+  io.fastBoundary.valid := o3.io.fastBoundary.valid
+  io.fastBoundary.bits := o3.io.fastBoundary.bits
+  o3.io.fastBoundary.ready := io.fastBoundary.ready
+  o3.io.fastWakeup.ready := true.B
+  o3.io.fastTrace.ready := true.B
+  o3.io.completions.foreach { completion =>
+    completion.valid := false.B
+    completion.bits := 0.U.asTypeOf(completion.bits)
+  }
+  o3.io.nonFlushEvidence.valid := false.B
+  o3.io.nonFlushEvidence.bits := 0.U.asTypeOf(o3.io.nonFlushEvidence.bits)
+  o3.io.interruptPending.foreach(_ := false.B)
+  o3.io.commit.ready := false.B
+  o3.io.storeCommit.ready := true.B
+  o3.io.ptagRecycle.ready := true.B
+  o3.io.dispatchReleases.foreach { release =>
+    release.valid := false.B
+    release.bits := 0.U.asTypeOf(release.bits)
+  }
+  o3.io.recoveryRequest.valid := false.B
+  o3.io.recoveryRequest.bits := 0.U.asTypeOf(o3.io.recoveryRequest.bits)
+  o3.io.iexRecoveryPrepareReady := true.B
+  o3.io.iexRecoveryPrepared := 0.U.asTypeOf(o3.io.iexRecoveryPrepared)
+  o3.io.iexRecoveryRejected.valid := false.B
+  o3.io.iexRecoveryRejected.bits := 0.U.asTypeOf(o3.io.iexRecoveryRejected.bits)
+  o3.io.queryStid := 0.U
+  o3.io.queryAtag := 1.U
+  o3.io.pcReadTokens.foreach(_ := 0.U.asTypeOf(o3.io.pcReadTokens.head))
+
+  io.preparedValid := o3.io.preparedValid
+  io.publishFire := o3.io.publishFire
+  io.fastRejected := o3.io.fastS1Rejected.valid
+  io.fastTerminalFire := o3.io.fastTerminalFire
+}
+
 class OooO3FastResolveIntegrationSpec extends AnyFunSuite with ChiselSim {
+  private def rule(symbol: String): OooOpcodeRecipeTable.Rule =
+    OooOpcodeRecipeTable.Rules.find(_.symbol == symbol).getOrElse(
+      fail(s"missing generated recipe for $symbol"))
+
   private def clear(dut: OooO3RenameCoordinator): Unit = {
     dut.io.reserve.valid.poke(false.B)
     dut.io.reserve.bits.poke(0.U.asTypeOf(dut.io.reserve.bits))
@@ -224,6 +294,80 @@ class OooO3FastResolveIntegrationSpec extends AnyFunSuite with ChiselSim {
       dut.io.commit.ready.poke(false.B)
       dut.io.robOccupiedGroups(0).expect(0.U)
       dut.io.mapQUsed(0).expect(0.U)
+    }
+  }
+
+  test("admits raw fused ICALL through D1 rename and fast resolve") {
+    val p = OooParams(
+      stidCount = 2,
+      instructionDecodeWidth = 2,
+      decodedUopWidth = 2,
+      renameWidth = 2,
+      dispatchWidth = 2,
+      retireGroupWidth = 2,
+      robGroupsPerStid = 8,
+      brobEntriesPerStid = 8,
+      pMapQDepthPerStid = 4,
+      pTagStagingDepthPerBank = 2,
+      pTagReturnWidth = 4,
+      tuMapQDepthPerStid = 4,
+      tuRetireSourceDepthPerStid = 16,
+      tPhysRegs = 8,
+      uPhysRegs = 8,
+      iqBankCount = 2,
+      iqEntriesPerBank = 4,
+      iqWritePortsPerBank = 2)
+    simulate(new OooRawIcallPipeline(p)) { dut =>
+      dut.io.raw.valid.poke(false.B)
+      dut.io.raw.bits.poke(0.U.asTypeOf(dut.io.raw.bits))
+      dut.io.fastReady.poke(false.B)
+      dut.io.fastWriteback.ready.poke(true.B)
+      dut.io.fastBoundary.ready.poke(true.B)
+      dut.clock.step()
+
+      val uimm5 = 13
+      val raw = rule("OP_BSTART_ICALL").value |
+        (BigInt(uimm5) << 22)
+      val group = dut.io.raw.bits
+      group.peId.poke(3.U)
+      group.stid.poke(0.U)
+      group.epoch.poke(5.U)
+      group.validMask.poke(1.U)
+      val entry = group.entries(0)
+      entry.parent.key.valid.poke(true.B)
+      entry.parent.key.peId.poke(3.U)
+      entry.parent.key.stid.poke(0.U)
+      entry.parent.key.instructionId.poke(190.U)
+      entry.parent.key.epoch.poke(5.U)
+      entry.parent.pc.poke(0x400.U)
+      entry.parent.rawInstruction.poke(raw.U)
+      entry.parent.lengthBytes.poke(4.U)
+      entry.parent.traceOwner.poke(true.B)
+      entry.parent.preciseExceptionOwner.poke(true.B)
+      entry.retiringBargBpcnValid.poke(true.B)
+      entry.retiringBargBpcn.poke(0x900.U)
+      dut.io.raw.valid.poke(true.B)
+      while (!dut.io.raw.ready.peek().litToBoolean) {
+        dut.clock.step()
+      }
+      dut.clock.step()
+      dut.io.raw.valid.poke(false.B)
+
+      var cycles = 0
+      while (!dut.io.fastWriteback.valid.peek().litToBoolean && cycles < 24) {
+        dut.clock.step()
+        cycles += 1
+      }
+      assert(cycles < 24, "raw ICALL did not reach fast resolve")
+      dut.io.fastRejected.expect(false.B)
+      dut.io.fastWriteback.bits.data.expect((0x400 + 2 + (uimm5 << 1)).U)
+      dut.io.fastBoundary.bits.targetValid.expect(true.B)
+      dut.io.fastBoundary.bits.target.expect(0x900.U)
+      dut.io.fastReady.poke(true.B)
+      dut.io.fastWriteback.valid.expect(true.B)
+      dut.io.fastBoundary.valid.expect(true.B)
+      dut.io.fastTerminalFire.expect(true.B)
+      dut.clock.step()
     }
   }
 }

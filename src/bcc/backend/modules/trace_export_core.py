@@ -14,6 +14,7 @@ from common.isa import (
     BK_DIRECT,
     BK_ICALL,
     BK_IND,
+    OP_BSTART_ICALL,
     OP_BTEXT,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_CALL,
@@ -2350,9 +2351,14 @@ def _build_trace_export_core(
         disp_block_bids.append(slot_block_bid)
         disp_load_store_ids.append(dispatch_fields["disp_load_store_id"])
         resolved_d2_is_setret = _op_is(m, decode_fields["op"], OP_SETRET, OP_C_SETRET)
+        resolved_d2_is_icall = _op_is(m, decode_fields["op"], OP_BSTART_ICALL)
         resolved_d2_value = resolved_d2_is_setret._select_internal(
             decode_fields["pc"] + decode_fields["imm"],
             decode_fields["imm"],
+        )
+        resolved_d2_value = resolved_d2_is_icall._select_internal(
+            decode_fields["pc"] + c(2, width=64) + decode_fields["imm"],
+            resolved_d2_value,
         )
         resolved_d2_valid = dispatch_fields["disp_fire"] & decode_fields["resolved_d2"] & decode_fields["need_pdst"]
         disp_resolved_d2_valids.append(resolved_d2_valid)

@@ -10,6 +10,7 @@ from common.isa import (
     BK_ICALL,
     BK_IND,
     BK_RET,
+    OP_BSTART_ICALL,
     OP_C_SETC_EQ,
     OP_C_SETC_NE,
     OP_C_SETC_TGT,
@@ -256,6 +257,10 @@ def build_commit_slot_step(m: Circuit) -> None:
     is_bstart_head = is_bstart & block_head
     is_bstart_mid = is_bstart & (~is_bstart_head)
     is_boundary = is_bstart_mid | is_bstop | is_macro
+    is_icall_start = is_bstart & op.__eq__(c(OP_BSTART_ICALL, width=12)) & \
+        rob_boundary_kind.__eq__(c(BK_ICALL, width=3))
+    retiring_bpcn_valid = commit_cond
+    retiring_bpcn = commit_tgt
 
     br_is_fall = br_kind.__eq__(c(BK_FALL, width=3))
     br_is_cond = br_kind.__eq__(c(BK_COND, width=3))
@@ -281,6 +286,7 @@ def build_commit_slot_step(m: Circuit) -> None:
 
     fire_pre = can_run & commit_allow & rob_valid & rob_done
     fire_pre = fire_pre & (allow_macro | (~is_macro))
+    fire_pre = fire_pre & ((~is_icall_start) | retiring_bpcn_valid)
 
     corr_epoch_match = br_corr_pending & br_corr_epoch.__eq__(br_epoch)
     # Commit is the architectural authority for SETC-driven block direction.
@@ -379,6 +385,9 @@ def build_commit_slot_step(m: Circuit) -> None:
 
     bstart_commit = fire & (is_bstart_head | is_bstart_mid)
     enter_new_block = bstart_commit & (~br_take_eff)
+    icall_enter = enter_new_block & is_icall_start
+    commit_tgt = icall_enter._select_internal(retiring_bpcn, commit_tgt)
+    commit_cond = icall_enter._select_internal(retiring_bpcn_valid, commit_cond)
     macro_enter = fire & is_macro & (~br_take_eff)
     boundary_taken = fire & is_boundary & br_take_eff
     meta_off = rob_boundary_target - pc_this
