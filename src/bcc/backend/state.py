@@ -34,8 +34,6 @@ class CoreCtrlRegs:
     br_corr_take: Reg
     br_corr_target: Reg
     br_corr_checkpoint_id: Reg
-    br_corr_fault_pending: Reg
-    br_corr_fault_rob: Reg
     commit_cond: Reg
     commit_tgt: Reg
     commit_tgt_valid: Reg
@@ -51,6 +49,7 @@ class CoreCtrlRegs:
     trap_pending: Reg
     trap_rob: Reg
     trap_cause: Reg
+    trap_arg0: Reg
     macro_active: Reg
     macro_wait_commit: Reg
     post_macro_handoff: Reg
@@ -191,12 +190,6 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         br_corr_checkpoint_id = m.out(
             "br_corr_checkpoint_id", clk=clk, rst=rst, width=6, init=c(0, width=6), en=consts.one1
         )
-        br_corr_fault_pending = m.out(
-            "br_corr_fault_pending", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1
-        )
-        br_corr_fault_rob = m.out(
-            "br_corr_fault_rob", clk=clk, rst=rst, width=p.rob_w, init=c(0, width=p.rob_w), en=consts.one1
-        )
         commit_cond = m.out("commit_cond", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         commit_tgt = m.out("commit_tgt", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
         commit_tgt_valid = m.out(
@@ -216,6 +209,7 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         trap_pending = m.out("trap_pending", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         trap_rob = m.out("trap_rob", clk=clk, rst=rst, width=p.rob_w, init=c(0, width=p.rob_w), en=consts.one1)
         trap_cause = m.out("trap_cause", clk=clk, rst=rst, width=32, init=c(0, width=32), en=consts.one1)
+        trap_arg0 = m.out("trap_arg0", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
 
         # Template macro blocks (FENTRY/FEXIT/FRET.*) microcode.
         macro_active = m.out("macro_active", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
@@ -258,8 +252,6 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         br_corr_take=br_corr_take,
         br_corr_target=br_corr_target,
         br_corr_checkpoint_id=br_corr_checkpoint_id,
-        br_corr_fault_pending=br_corr_fault_pending,
-        br_corr_fault_rob=br_corr_fault_rob,
         commit_cond=commit_cond,
         commit_tgt=commit_tgt,
         commit_tgt_valid=commit_tgt_valid,
@@ -273,6 +265,7 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         trap_pending=trap_pending,
         trap_rob=trap_rob,
         trap_cause=trap_cause,
+        trap_arg0=trap_arg0,
         macro_active=macro_active,
         macro_wait_commit=macro_wait_commit,
         post_macro_handoff=post_macro_handoff,

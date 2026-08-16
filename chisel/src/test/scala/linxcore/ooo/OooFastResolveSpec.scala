@@ -284,7 +284,8 @@ class OooFastResolveSpec extends AnyFunSuite with ChiselSim {
       dut.io.trace.bits.result.expect("h1028".U)
       dut.clock.step()
 
-      // START_CALL retains both target validation and RA result obligations.
+      // Fused ICALL retains target validation and returns P+2 for a zero
+      // normalized uimm5 delta.
       clear(dut)
       dut.io.fastResolveClass.poke(
         OooFastResolveClass.ControlValueProducer.U)
@@ -298,7 +299,7 @@ class OooFastResolveSpec extends AnyFunSuite with ChiselSim {
       dut.io.terminalFire.expect(true.B)
       dut.io.boundary.valid.expect(true.B)
       dut.io.writeback.valid.expect(true.B)
-      dut.io.writeback.bits.data.expect("h1004".U)
+      dut.io.writeback.bits.data.expect("h1002".U)
       dut.clock.step()
 
       // A precise trap publishes only the ordered trace and exact completion.

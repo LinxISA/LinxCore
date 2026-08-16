@@ -26,13 +26,13 @@ def build_precise_trap_control_stage(m: Circuit, *, commit_w: int = 4, rob_w: in
     trap_retire = trap_retire & state_trap_pending
 
     trap_pending_next = do_flush._select_internal(c(0, width=1), state_trap_pending)
-    trap_pending_next = trap_retire._select_internal(c(0, width=1), trap_pending_next)
     trap_pending_next = fault_pending._select_internal(c(1, width=1), trap_pending_next)
     trap_rob_next = fault_pending._select_internal(fault_rob, state_trap_rob)
     trap_cause_next = fault_pending._select_internal(
         c(TRAP_BRU_RECOVERY_NOT_BSTART, width=32), state_trap_cause
     )
-    trap_arg0_next = fault_pending._select_internal(fault_arg0, state_trap_arg0)
+    first_fault = fault_pending & (~state_trap_pending)
+    trap_arg0_next = first_fault._select_internal(fault_arg0, state_trap_arg0)
 
     m.output("trap_retire", trap_retire)
     m.output("trap_pending_next", trap_pending_next)

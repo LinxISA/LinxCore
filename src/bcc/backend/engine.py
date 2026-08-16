@@ -2238,20 +2238,19 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     corr_epoch_stale = br_corr_pending_n & (~br_corr_epoch_n.__eq__(br_epoch_live))
     br_corr_pending_n = corr_epoch_stale._select_internal(consts.zero1, br_corr_pending_n)
 
-    br_corr_fault_pending_n = state.br_corr_fault_pending.out()
-    br_corr_fault_rob_n = state.br_corr_fault_rob.out()
+    br_corr_fault_pending_n = consts.zero1
+    br_corr_fault_rob_n = state.trap_rob.out()
     icall_fault_set_any = consts.zero1
     icall_fault_rob = c(0, width=p.rob_w)
     for slot in range(p.commit_w):
         take_icall_fault = icall_fault_sets[slot] & (~icall_fault_set_any)
         icall_fault_rob = take_icall_fault._select_internal(commit_idxs[slot], icall_fault_rob)
         icall_fault_set_any = icall_fault_set_any | icall_fault_sets[slot]
-    br_corr_fault_pending_n = do_flush._select_internal(consts.zero1, br_corr_fault_pending_n)
     br_corr_fault_pending_n = bru_fault_set._select_internal(consts.one1, br_corr_fault_pending_n)
     br_corr_fault_rob_n = bru_fault_set._select_internal(bru_fault_rob, br_corr_fault_rob_n)
     br_corr_fault_pending_n = icall_fault_set_any._select_internal(consts.one1, br_corr_fault_pending_n)
     br_corr_fault_rob_n = icall_fault_set_any._select_internal(icall_fault_rob, br_corr_fault_rob_n)
-    br_corr_fault_pc_n = state.br_corr_target.out()
+    br_corr_fault_pc_n = consts.zero64
     if p.bru_w > 0:
         br_corr_fault_pc_n = bru_fault_set._select_internal(uop_pcs[bru_slot], br_corr_fault_pc_n)
     br_corr_fault_pc_n = icall_fault_set_any._select_internal(commit_sel["icall_fault_pc"], br_corr_fault_pc_n)
@@ -2298,7 +2297,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         "state_trap_pending": state.trap_pending.out(),
         "state_trap_rob": state.trap_rob.out(),
         "state_trap_cause": state.trap_cause.out(),
-        "state_trap_arg0": br_corr_target_n,
+        "state_trap_arg0": state.trap_arg0.out(),
         "fault_pending": br_corr_fault_pending_n,
         "fault_rob": br_corr_fault_rob_n,
         "fault_arg0": br_corr_fault_pc_n,
@@ -2316,9 +2315,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.trap_pending.set(trap_ctrl["trap_pending_next"])
     state.trap_rob.set(trap_ctrl["trap_rob_next"])
     state.trap_cause.set(trap_ctrl["trap_cause_next"])
-    br_corr_fault_pending_n = trap_ctrl["fault_pending_next"]
-    state.br_corr_fault_pending.set(br_corr_fault_pending_n)
-    state.br_corr_fault_rob.set(br_corr_fault_rob_n)
+    state.trap_arg0.set(trap_ctrl["trap_arg0_next"])
     state.halted.set(consts.one1, when=(commit_ctrl["halt_set"] | trap_retire))
 
     commit_tgt_live = macro_setc_tgt_fire._select_internal(macro_setc_tgt_data, commit_tgt_live)
@@ -2343,10 +2340,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.br_corr_pending.set(br_corr_pending_n)
     state.br_corr_epoch.set(br_corr_epoch_n)
     state.br_corr_take.set(br_corr_take_n)
-    # The deferred-recovery target register is mutually exclusive with a
-    # pending recovery fault, so it also retains the offending source PC until
-    # the precise trap record retires.
-    state.br_corr_target.set(trap_ctrl["trap_arg0_next"])
+    state.br_corr_target.set(br_corr_target_n)
     state.br_corr_checkpoint_id.set(br_corr_checkpoint_id_n)
 
     # --- template macro engine state updates ---
@@ -2602,6 +2596,7 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         "trap_pending": state.trap_pending.out(),
         "trap_rob": state.trap_rob.out(),
         "trap_cause": state.trap_cause.out(),
+        "trap_arg0": state.trap_arg0.out(),
         "macro_trace_fire": macro_trace_fire,
         "macro_trace_pc": macro_trace_pc,
         "macro_trace_rob": macro_trace_rob,

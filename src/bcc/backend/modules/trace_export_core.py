@@ -263,7 +263,7 @@ def build_commit_trace_export(
     trap_pending = m.input("trap_pending_i", width=1)
     trap_rob = m.input("trap_rob_i", width=rob_w)
     trap_cause = m.input("trap_cause_i", width=32)
-    commit_trap_arg0 = c(0, width=64)
+    trap_arg0 = m.input("trap_arg0_i", width=64)
 
     raw_slots = [_trace_unpack_slot_pack(raw_pack, raw_specs, slot) for slot in range(commit_w)]
     macro_fields = _trace_unpack_fields(macro_pack, macro_specs)
@@ -353,7 +353,6 @@ def build_commit_trace_export(
                 c(TRAP_E_BLOCK_CFI_BAD_TARGET, width=32), trap_cause
             )
             trap_cause_slot = trap_hit._select_internal(architectural_cause, trap_cause_slot)
-            commit_trap_arg0 = trap_hit._select_internal(raw["pc"], commit_trap_arg0)
             macro_pending_raw_kill = macro_wait_commit & (~raw["pc"].__eq__(macro_pc))
             macro_pending_raw_kill = macro_pending_raw_kill & (~_op_is(m, raw["op"], OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK))
             fire = macro_pending_raw_kill._select_internal(c(0, width=1), fire)
@@ -640,7 +639,7 @@ def build_commit_trace_export(
         m.output(f"commit_next_pc{slot}", next_pc)
         m.output(f"commit_checkpoint_id{slot}", checkpoint_id)
     # Precise retirement admits at most one trap record per cycle.
-    m.output("commit_trap_arg0", commit_trap_arg0)
+    m.output("commit_trap_arg0", trap_arg0)
     m.output("commit_trap_bi", c(0, width=1))
 
 
@@ -2655,19 +2654,24 @@ def _build_trace_export_core(
     corr_epoch_stale = br_corr_pending_n & (~br_corr_epoch_n.__eq__(br_epoch_live))
     br_corr_pending_n = corr_epoch_stale._select_internal(consts.zero1, br_corr_pending_n)
 
-    br_corr_fault_pending_n = state.br_corr_fault_pending.out()
-    br_corr_fault_rob_n = state.br_corr_fault_rob.out()
+    br_corr_fault_pending_n = consts.zero1
+    br_corr_fault_rob_n = state.trap_rob.out()
     icall_fault_set_any = consts.zero1
     icall_fault_rob = c(0, width=p.rob_w)
+    icall_fault_pc = state.trap_arg0.out()
     for slot in range(p.commit_w):
         take_icall_fault = icall_fault_sets[slot] & (~icall_fault_set_any)
         icall_fault_rob = take_icall_fault._select_internal(commit_idxs[slot], icall_fault_rob)
+        icall_fault_pc = take_icall_fault._select_internal(commit_pcs[slot], icall_fault_pc)
         icall_fault_set_any = icall_fault_set_any | icall_fault_sets[slot]
-    br_corr_fault_pending_n = do_flush._select_internal(consts.zero1, br_corr_fault_pending_n)
     br_corr_fault_pending_n = bru_fault_set._select_internal(consts.one1, br_corr_fault_pending_n)
     br_corr_fault_rob_n = bru_fault_set._select_internal(bru_fault_rob, br_corr_fault_rob_n)
     br_corr_fault_pending_n = icall_fault_set_any._select_internal(consts.one1, br_corr_fault_pending_n)
     br_corr_fault_rob_n = icall_fault_set_any._select_internal(icall_fault_rob, br_corr_fault_rob_n)
+    br_corr_fault_pc_n = consts.zero64
+    if p.bru_w > 0:
+        br_corr_fault_pc_n = bru_fault_set._select_internal(uop_pcs[bru_slot], br_corr_fault_pc_n)
+    br_corr_fault_pc_n = icall_fault_set_any._select_internal(icall_fault_pc, br_corr_fault_pc_n)
 
     commit_ctrl_args = {
         "do_flush": do_flush,
@@ -2716,17 +2720,17 @@ def _build_trace_export_core(
     trap_pending_n = state.trap_pending.out()
     trap_rob_n = state.trap_rob.out()
     trap_cause_n = state.trap_cause.out()
+    trap_arg0_n = state.trap_arg0.out()
     trap_pending_n = do_flush._select_internal(consts.zero1, trap_pending_n)
-    trap_pending_n = trap_retire._select_internal(consts.zero1, trap_pending_n)
     trap_pending_n = br_corr_fault_pending_n._select_internal(consts.one1, trap_pending_n)
     trap_rob_n = br_corr_fault_pending_n._select_internal(br_corr_fault_rob_n, trap_rob_n)
     trap_cause_n = br_corr_fault_pending_n._select_internal(c(TRAP_BRU_RECOVERY_NOT_BSTART, width=32), trap_cause_n)
+    first_trap_fault = br_corr_fault_pending_n & (~state.trap_pending.out())
+    trap_arg0_n = first_trap_fault._select_internal(br_corr_fault_pc_n, trap_arg0_n)
     state.trap_pending.set(trap_pending_n)
     state.trap_rob.set(trap_rob_n)
     state.trap_cause.set(trap_cause_n)
-    br_corr_fault_pending_n = trap_retire._select_internal(consts.zero1, br_corr_fault_pending_n)
-    state.br_corr_fault_pending.set(br_corr_fault_pending_n)
-    state.br_corr_fault_rob.set(br_corr_fault_rob_n)
+    state.trap_arg0.set(trap_arg0_n)
     state.halted.set(consts.one1, when=(commit_ctrl["halt_set"] | trap_retire))
 
     commit_tgt_live = macro_setc_tgt_fire._select_internal(macro_setc_tgt_data, commit_tgt_live)
@@ -3160,6 +3164,7 @@ def _build_trace_export_core(
         trap_pending_i=state.trap_pending.out(),
         trap_rob_i=state.trap_rob.out(),
         trap_cause_i=state.trap_cause.out(),
+        trap_arg0_i=state.trap_arg0.out(),
     )
     m.output("dmem_raddr", dmem_raddr)
     m.output("dmem_wvalid", mem_wvalid)

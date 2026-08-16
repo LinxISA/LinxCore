@@ -64,8 +64,10 @@ RAW_TRAP_RETIRE = pack(
     RAW_SPECS,
     {
         "fire": 1,
-        "pc": SOURCE_PC,
-        "next_pc": SOURCE_PC,
+        # A sentinel proves architectural TRAPARG0 comes from deferred trap
+        # state rather than being recomputed from the later retire row.
+        "pc": 0xDEAD,
+        "next_pc": 0xDEAD,
         "rob": FAULT_ROB,
         "op": OP_BSTART_ICALL,
         "len": 4,
@@ -85,14 +87,13 @@ def build(m: Circuit) -> None:
     fault_pc = m.input("fault_pc", width=64)
     raw_pack = m.input("raw_pack", width=_trace_field_width_sum(RAW_SPECS))
 
+    raw_fire = raw_pack.slice(lsb=0, width=1)
+    raw_rob_lsb = 1 + 64 + 64
+    raw_rob = raw_pack.slice(lsb=raw_rob_lsb, width=ROB_W)
     trap_pending = m.out("trap_pending", clk=clk, rst=rst, width=1, init=c(0, width=1), en=c(1, width=1))
     trap_rob = m.out("trap_rob", clk=clk, rst=rst, width=ROB_W, init=c(0, width=ROB_W), en=c(1, width=1))
     trap_cause = m.out("trap_cause", clk=clk, rst=rst, width=32, init=c(0, width=32), en=c(1, width=1))
     trap_arg0 = m.out("trap_arg0", clk=clk, rst=rst, width=64, init=c(0, width=64), en=c(1, width=1))
-
-    raw_fire = raw_pack.slice(lsb=0, width=1)
-    raw_rob_lsb = 1 + 64 + 64
-    raw_rob = raw_pack.slice(lsb=raw_rob_lsb, width=ROB_W)
     trap_ctrl = m.instance_auto(
         build_precise_trap_control_stage,
         name="precise_trap_control_stage",
@@ -128,6 +129,7 @@ def build(m: Circuit) -> None:
         trap_pending_i=trap_pending.out(),
         trap_rob_i=trap_rob.out(),
         trap_cause_i=trap_cause.out(),
+        trap_arg0_i=trap_arg0.out(),
     )
     m.output("state_pending", trap_pending.out())
     m.output("state_rob", trap_rob.out())
@@ -150,11 +152,11 @@ def tb(t: Tb) -> None:
     t.drive("fault_rob", FAULT_ROB, at=0)
     t.drive("fault_pc", SOURCE_PC, at=0)
     t.drive("raw_pack", RAW_FAULT, at=0)
-    # The backend's deferred-fault owner holds this request until the precise
-    # trap controller observes retirement and returns fault_pending_next=0.
-    t.drive("fault_pending", 1, at=1)
+    # The request is a one-cycle pulse. Retained precise-trap state must keep
+    # the first fault's PC even after the source inputs change.
+    t.drive("fault_pending", 0, at=1)
     t.drive("fault_rob", FAULT_ROB, at=1)
-    t.drive("fault_pc", SOURCE_PC, at=1)
+    t.drive("fault_pc", 0xBEEF, at=1)
     t.drive("raw_pack", RAW_TRAP_RETIRE, at=1)
     for cycle in range(2):
         t.print(
@@ -193,6 +195,15 @@ ROW = re.compile(
 
 
 def main() -> int:
+    state_src = (ROOT / "src/bcc/backend/state.py").read_text(encoding="utf-8")
+    canonical_src = (ROOT / "src/bcc/backend/engine.py").read_text(encoding="utf-8")
+    generated_src = (ROOT / "src/bcc/backend/modules/trace_export_core.py").read_text(encoding="utf-8")
+    assert "trap_arg0: Reg" in state_src and 'm.out("trap_arg0"' in state_src
+    assert 'state.trap_arg0.set(trap_ctrl["trap_arg0_next"])' in canonical_src
+    assert '"trap_arg0": state.trap_arg0.out()' in canonical_src
+    assert "state.trap_arg0.set(trap_arg0_n)" in generated_src
+    assert "trap_arg0_i=state.trap_arg0.out()" in generated_src
+
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PYTHONPATH"] = os.pathsep.join(
