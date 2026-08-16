@@ -13,8 +13,10 @@ def build_precise_trap_control_stage(m: Circuit, *, commit_w: int = 4, rob_w: in
     state_trap_pending = m.input("state_trap_pending", width=1)
     state_trap_rob = m.input("state_trap_rob", width=rob_w)
     state_trap_cause = m.input("state_trap_cause", width=32)
+    state_trap_arg0 = m.input("state_trap_arg0", width=64)
     fault_pending = m.input("fault_pending", width=1)
     fault_rob = m.input("fault_rob", width=rob_w)
+    fault_arg0 = m.input("fault_arg0", width=64)
 
     trap_retire = c(0, width=1)
     for slot in range(commit_w):
@@ -30,11 +32,13 @@ def build_precise_trap_control_stage(m: Circuit, *, commit_w: int = 4, rob_w: in
     trap_cause_next = fault_pending._select_internal(
         c(TRAP_BRU_RECOVERY_NOT_BSTART, width=32), state_trap_cause
     )
+    trap_arg0_next = fault_pending._select_internal(fault_arg0, state_trap_arg0)
 
     m.output("trap_retire", trap_retire)
     m.output("trap_pending_next", trap_pending_next)
     m.output("trap_rob_next", trap_rob_next)
     m.output("trap_cause_next", trap_cause_next)
+    m.output("trap_arg0_next", trap_arg0_next)
     m.output("fault_pending_next", trap_retire._select_internal(c(0, width=1), fault_pending))
 
 

@@ -62,6 +62,8 @@ def define_commit_probe(target):
                     "mem_size": dut.read(f"{_COMMIT}.commit_mem_size{slot}"),
                     "trap_valid": dut.read(f"{_COMMIT}.commit_trap_valid{slot}"),
                     "trap_cause": dut.read(f"{_COMMIT}.commit_trap_cause{slot}"),
+                    "trap_arg0": dut.read(f"{_COMMIT}.commit_trap_arg0"),
+                    "trap_bi": dut.read(f"{_COMMIT}.commit_trap_bi"),
                     "next_pc": dut.read(f"{_COMMIT}.commit_next_pc{slot}"),
                     "checkpoint_id": dut.read(f"{_COMMIT}.commit_checkpoint_id{slot}"),
                 },

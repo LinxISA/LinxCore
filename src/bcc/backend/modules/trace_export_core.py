@@ -90,6 +90,7 @@ from common.isa import (
     OP_SWI,
     REG_INVALID,
     TRAP_BRU_RECOVERY_NOT_BSTART,
+    TRAP_E_BLOCK_CFI_BAD_TARGET,
 )
 from common.util import make_consts
 from ..code_template_unit import build_code_template_unit
@@ -262,6 +263,7 @@ def build_commit_trace_export(
     trap_pending = m.input("trap_pending_i", width=1)
     trap_rob = m.input("trap_rob_i", width=rob_w)
     trap_cause = m.input("trap_cause_i", width=32)
+    commit_trap_arg0 = c(0, width=64)
 
     raw_slots = [_trace_unpack_slot_pack(raw_pack, raw_specs, slot) for slot in range(commit_w)]
     macro_fields = _trace_unpack_fields(macro_pack, macro_specs)
@@ -346,7 +348,12 @@ def build_commit_trace_export(
             mem_size = raw["is_store"]._select_internal(raw["st_size"], raw["ld_size"])
             trap_hit = trap_pending & raw["rob"].__eq__(trap_rob)
             trap_valid = fire & trap_hit
-            trap_cause_slot = trap_hit._select_internal(trap_cause, trap_cause_slot)
+            internal_bad_target = trap_cause.__eq__(c(TRAP_BRU_RECOVERY_NOT_BSTART, width=32))
+            architectural_cause = internal_bad_target._select_internal(
+                c(TRAP_E_BLOCK_CFI_BAD_TARGET, width=32), trap_cause
+            )
+            trap_cause_slot = trap_hit._select_internal(architectural_cause, trap_cause_slot)
+            commit_trap_arg0 = trap_hit._select_internal(raw["pc"], commit_trap_arg0)
             macro_pending_raw_kill = macro_wait_commit & (~raw["pc"].__eq__(macro_pc))
             macro_pending_raw_kill = macro_pending_raw_kill & (~_op_is(m, raw["op"], OP_FENTRY, OP_FEXIT, OP_FRET_RA, OP_FRET_STK))
             fire = macro_pending_raw_kill._select_internal(c(0, width=1), fire)
@@ -632,6 +639,9 @@ def build_commit_trace_export(
         m.output(f"commit_trap_cause{slot}", trap_cause_slot)
         m.output(f"commit_next_pc{slot}", next_pc)
         m.output(f"commit_checkpoint_id{slot}", checkpoint_id)
+    # Precise retirement admits at most one trap record per cycle.
+    m.output("commit_trap_arg0", commit_trap_arg0)
+    m.output("commit_trap_bi", c(0, width=1))
 
 
 def _build_trace_export_core(

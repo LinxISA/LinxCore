@@ -558,6 +558,13 @@ def build_commit_select_stage(
     m.output("br_corr_pending_live", br_corr_pending_live)
     m.output("commit_effect_fire_pack", m.concat(*reversed(commit_effect_fires)))
     m.output("icall_fault_set_pack", m.concat(*reversed(icall_fault_sets)))
+    icall_fault_pc = consts.zero64
+    icall_fault_pc_seen = consts.zero1
+    for slot in range(commit_w):
+        take_fault_pc = icall_fault_sets[slot] & (~icall_fault_pc_seen)
+        icall_fault_pc = take_fault_pc._select_internal(commit_pcs[slot], icall_fault_pc)
+        icall_fault_pc_seen = icall_fault_pc_seen | icall_fault_sets[slot]
+    m.output("icall_fault_pc", icall_fault_pc)
 
     for slot in range(commit_w):
         m.output(f"commit_fire{slot}", commit_fires[slot])
@@ -2244,6 +2251,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     br_corr_fault_rob_n = bru_fault_set._select_internal(bru_fault_rob, br_corr_fault_rob_n)
     br_corr_fault_pending_n = icall_fault_set_any._select_internal(consts.one1, br_corr_fault_pending_n)
     br_corr_fault_rob_n = icall_fault_set_any._select_internal(icall_fault_rob, br_corr_fault_rob_n)
+    br_corr_fault_pc_n = state.br_corr_target.out()
+    if p.bru_w > 0:
+        br_corr_fault_pc_n = bru_fault_set._select_internal(uop_pcs[bru_slot], br_corr_fault_pc_n)
+    br_corr_fault_pc_n = icall_fault_set_any._select_internal(commit_sel["icall_fault_pc"], br_corr_fault_pc_n)
 
     commit_ctrl_args = {
         "do_flush": do_flush,
@@ -2287,8 +2298,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         "state_trap_pending": state.trap_pending.out(),
         "state_trap_rob": state.trap_rob.out(),
         "state_trap_cause": state.trap_cause.out(),
+        "state_trap_arg0": br_corr_target_n,
         "fault_pending": br_corr_fault_pending_n,
         "fault_rob": br_corr_fault_rob_n,
+        "fault_arg0": br_corr_fault_pc_n,
     }
     for slot in range(p.commit_w):
         trap_ctrl_args[f"commit_fire{slot}"] = commit_fires[slot]
@@ -2330,7 +2343,10 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
     state.br_corr_pending.set(br_corr_pending_n)
     state.br_corr_epoch.set(br_corr_epoch_n)
     state.br_corr_take.set(br_corr_take_n)
-    state.br_corr_target.set(br_corr_target_n)
+    # The deferred-recovery target register is mutually exclusive with a
+    # pending recovery fault, so it also retains the offending source PC until
+    # the precise trap record retires.
+    state.br_corr_target.set(trap_ctrl["trap_arg0_next"])
     state.br_corr_checkpoint_id.set(br_corr_checkpoint_id_n)
 
     # --- template macro engine state updates ---
@@ -2708,6 +2724,8 @@ def build_bcc_ooo(m: Circuit, *, mem_bytes: int, params: OooParams | None = None
         m.output(f"commit_trap_cause{slot}", commit_trace_stage[f"commit_trap_cause{slot}"])
         m.output(f"commit_next_pc{slot}", commit_trace_stage[f"commit_next_pc{slot}"])
         m.output(f"commit_checkpoint_id{slot}", commit_trace_stage[f"commit_checkpoint_id{slot}"])
+    m.output("commit_trap_arg0", commit_trace_stage["commit_trap_arg0"])
+    m.output("commit_trap_bi", commit_trace_stage["commit_trap_bi"])
     m.output("rob_count", rob.count)
 
     # Debug: committed vs speculative hand tops (T0/U0).

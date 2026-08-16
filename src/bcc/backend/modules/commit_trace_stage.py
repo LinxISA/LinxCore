@@ -15,6 +15,8 @@ from common.isa import (
     OP_FEXIT,
     OP_FRET_RA,
     OP_FRET_STK,
+    TRAP_BRU_RECOVERY_NOT_BSTART,
+    TRAP_E_BLOCK_CFI_BAD_TARGET,
 )
 
 
@@ -63,6 +65,7 @@ def build_commit_trace_stage(
     trap_pending = m.input("trap_pending", width=1)
     trap_rob = m.input("trap_rob", width=rob_w)
     trap_cause_i = m.input("trap_cause", width=32)
+    commit_trap_arg0 = z64
 
     macro_trace_fire = m.input("macro_trace_fire", width=1)
     macro_trace_pc = m.input("macro_trace_pc", width=64)
@@ -273,7 +276,12 @@ def build_commit_trace_stage(
             checkpoint_id = rob_checkpoint_ids[slot]
             trap_hit = trap_pending & (commit_idxs[slot] == trap_rob)
             trap_valid = fire & trap_hit
-            trap_cause = trap_cause_i if trap_hit else trap_cause
+            internal_bad_target = trap_cause_i == u(32, TRAP_BRU_RECOVERY_NOT_BSTART)
+            architectural_cause = internal_bad_target._select_internal(
+                u(32, TRAP_E_BLOCK_CFI_BAD_TARGET), trap_cause_i
+            )
+            trap_cause = architectural_cause if trap_hit else trap_cause
+            commit_trap_arg0 = trap_hit._select_internal(pc, commit_trap_arg0)
 
         # When `shadow_boundary_fire` is active, shift real retire records up
         # by one slot so slot0 can carry the synthetic boundary marker event.
@@ -597,3 +605,8 @@ def build_commit_trace_stage(
         m.output(f"commit_trap_cause{slot}", trap_cause)
         m.output(f"commit_next_pc{slot}", next_pc)
         m.output(f"commit_checkpoint_id{slot}", checkpoint_id)
+    # At most one precise trap may retire in a cycle, so its architectural
+    # envelope carries a single shared TRAPARG0/BI payload alongside the
+    # per-slot valid/cause indication.
+    m.output("commit_trap_arg0", commit_trap_arg0)
+    m.output("commit_trap_bi", z1)
