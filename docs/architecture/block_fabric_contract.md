@@ -126,6 +126,6 @@ sufficient to distinguish same-block transactions.
 
 Current phase is deterministic functional behavior, not final production datapaths:
 
-- TMA/CUBE/VEC/TAU implement fixed-latency command execution
+- TLSU/CUBE/VEC/SFU implement fixed-latency command execution
 - each lane has command accept state and delayed response
 - arithmetic kernels remain deterministic and lane-specific for debugability

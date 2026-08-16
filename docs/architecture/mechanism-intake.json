@@ -258,7 +258,7 @@
     },
     {
       "id": "engine-memory",
-      "title": "Block-engine and TMA memory integration",
+      "title": "Block-engine and TLSU memory integration",
       "disposition": "adapt",
       "status": "promoted",
       "rationale": "Decoupled engine memory remains subordinate to Linx block completion and shared memory ownership.",

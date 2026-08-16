@@ -10,10 +10,13 @@ The Markdown pages own normative semantics. The machine-readable
 family, implementation owner, top-shell role, scenario, and migration input.
 It must not introduce behavior that is absent from the owning Markdown page.
 
-Run the standalone authority and coverage gate with:
+Run the authority and coverage gates from an initialized superproject checkout:
 
 ```bash
 bash tests/test_microarchitecture_contract.sh
+python3 docs/architecture/test_check_v0581_consistency.py
+python3 docs/architecture/check_v0581_consistency.py
+python3 docs/architecture/check_v0581_consistency.py --authority-root ../..
 ```
 
 ## Contract pages
@@ -60,17 +63,21 @@ Do not edit the superproject mirrors by hand.
 - `block_private_rf.md`
 - `stages/BROB.md`
 
-## Janus engine directories
+## Archived Janus subsystem notes
 
 - `Janus/BCC/`: Block Control Core notes, diagrams, and background material
 - `Janus/TMU/`: Tile Management Unit specifications
-- `Janus/TMA/`: Tile Memory Access specifications
+- `Janus/TMA/`: legacy Tile Memory Access implementation notes
 - `Janus/Cube/`: CUBE matrix accelerator specifications and design notes
 - `Janus/Vector/`: Vector Core specifications
 
-These subdirectories are subsystem notes. Whenever they describe the
-LinxCore/BCC IFU, they must use the I-SIDE/B-SIDE contract in `ifu.md` and the
-stage taxonomy in `NAMING.md` and `pipeline-stage-catalog.md`.
+These subdirectories are non-normative subsystem and historical design notes.
+Legacy TMA/TAU names in this subtree describe implementation topology only;
+they do not define architectural engines or ownership. The Tile execution
+engines are exactly `VEC`, `SFU`, `TLSU`, and `CUBE`. `TEPL` is the unchanged
+Mode/Function carrier for VEC/SFU, not an engine. Whenever these notes describe
+the LinxCore/BCC IFU, they must use the I-SIDE/B-SIDE contract in `ifu.md` and
+the stage taxonomy in `NAMING.md` and `pipeline-stage-catalog.md`.
 
 The migration inputs were removed after classification and promotion. Their
 machine-readable disposition and target mapping is `mechanism-intake.json`;
