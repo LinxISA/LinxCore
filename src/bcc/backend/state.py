@@ -38,6 +38,7 @@ class CoreCtrlRegs:
     br_corr_fault_rob: Reg
     commit_cond: Reg
     commit_tgt: Reg
+    commit_tgt_valid: Reg
     flush_pending: Reg
     flush_pc: Reg
     flush_checkpoint_id: Reg
@@ -198,6 +199,9 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         )
         commit_cond = m.out("commit_cond", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
         commit_tgt = m.out("commit_tgt", clk=clk, rst=rst, width=64, init=consts.zero64, en=consts.one1)
+        commit_tgt_valid = m.out(
+            "commit_tgt_valid", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1
+        )
 
         # Redirect handling (one-cycle "bubble flush" after a taken boundary).
         flush_pending = m.out("flush_pending", clk=clk, rst=rst, width=1, init=consts.zero1, en=consts.one1)
@@ -258,6 +262,7 @@ def make_core_ctrl_regs(m: Circuit, clk: Signal, rst: Signal, *, boot_pc: Wire, 
         br_corr_fault_rob=br_corr_fault_rob,
         commit_cond=commit_cond,
         commit_tgt=commit_tgt,
+        commit_tgt_valid=commit_tgt_valid,
         flush_pending=flush_pending,
         flush_pc=flush_pc,
         flush_checkpoint_id=flush_checkpoint_id,

@@ -86,6 +86,10 @@ class OooIfuRawIngressSpec extends AnyFunSuite with ChiselSim {
       dut.io.retiringBargBpcnValid(1).poke(true.B)
       dut.io.retiringBargBpcn(1).poke(0x900.U)
       enqueue(dut, stid = 1, firstId = 10)
+      // The queued row owns the retiring-BARG snapshot. A later architectural
+      // update while the reservoir is stalled must not retarget that row.
+      dut.io.retiringBargBpcnValid(1).poke(false.B)
+      dut.io.retiringBargBpcn(1).poke(0xa00.U)
 
       dut.io.counts(1).expect(4.U)
       dut.io.eligibleMask.expect("b0010".U)

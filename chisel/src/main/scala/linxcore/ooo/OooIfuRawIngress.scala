@@ -72,6 +72,10 @@ class OooIfuRawIngress(
 
   val entries = RegInit(VecInit(Seq.fill(oooP.stidCount)(
     VecInit(Seq.fill(depthPerStid)(0.U.asTypeOf(new InstructionBufferEntry(ifuP)))))))
+  val retiringBargBpcnValids = RegInit(VecInit(Seq.fill(oooP.stidCount)(
+    VecInit(Seq.fill(depthPerStid)(false.B)))))
+  val retiringBargBpcns = RegInit(VecInit(Seq.fill(oooP.stidCount)(
+    VecInit(Seq.fill(depthPerStid)(0.U(oooP.pcWidth.W))))))
   val heads = RegInit(VecInit(Seq.fill(oooP.stidCount)(0.U(ptrWidth.W))))
   val tails = RegInit(VecInit(Seq.fill(oooP.stidCount)(0.U(ptrWidth.W))))
   val counts = RegInit(VecInit(Seq.fill(oooP.stidCount)(0.U(countWidth.W))))
@@ -85,7 +89,11 @@ class OooIfuRawIngress(
       .map(lanes => mask === ((BigInt(1) << lanes) - 1).U(width.W))
       .reduce(_ || _)
 
-  private def mapEntry(target: OooRawInstruction, source: InstructionBufferEntry): Unit = {
+  private def mapEntry(
+      target: OooRawInstruction,
+      source: InstructionBufferEntry,
+      retiringBargBpcnValid: Bool,
+      retiringBargBpcn: UInt): Unit = {
     target := 0.U.asTypeOf(target)
     target.parent.key.valid := true.B
     target.parent.key.peId := source.identity.peId
@@ -113,12 +121,8 @@ class OooIfuRawIngress(
     target.parent.prediction.epoch := source.prediction.epoch
     target.parent.traceOwner := true.B
     target.parent.preciseExceptionOwner := true.B
-    target.retiringBargBpcnValid := (0 until oooP.stidCount).map { stid =>
-      source.identity.threadId === stid.U && io.retiringBargBpcnValid(stid)
-    }.reduce(_ || _)
-    target.retiringBargBpcn := MuxCase(0.U, (0 until oooP.stidCount).map { stid =>
-      (source.identity.threadId === stid.U) -> io.retiringBargBpcn(stid)
-    })
+    target.retiringBargBpcnValid := retiringBargBpcnValid
+    target.retiringBargBpcn := retiringBargBpcn
     target.fetchFaultValid := false.B
     target.fetchFaultCause := 0.U
   }
@@ -152,6 +156,12 @@ class OooIfuRawIngress(
   val inStid = io.ifuD1.bits.entries(0).identity.threadId
   val inStidSupported = inStid < oooP.stidCount.U
   val inBank = inStid(oooP.stidWidth - 1, 0)
+  val inRetiringBargBpcnValid = MuxCase(false.B, (0 until oooP.stidCount).map { stid =>
+    (inStid === stid.U) -> io.retiringBargBpcnValid(stid)
+  })
+  val inRetiringBargBpcn = MuxCase(0.U, (0 until oooP.stidCount).map { stid =>
+    (inStid === stid.U) -> io.retiringBargBpcn(stid)
+  })
   val inFenced = inStidSupported && io.fence(inBank)
   val inPeId = io.ifuD1.bits.entries(0).identity.peId
   val inEpoch = io.ifuD1.bits.entries(0).identity.epoch
@@ -199,7 +209,11 @@ class OooIfuRawIngress(
   for (lane <- 0 until oooP.instructionDecodeWidth) {
     val readPtr = advancePtr(heads(selectedBank), lane.U)
     when(outputPrefix(lane)) {
-      mapEntry(io.out.bits.entries(lane), entries(selectedBank)(readPtr))
+      mapEntry(
+        io.out.bits.entries(lane),
+        entries(selectedBank)(readPtr),
+        retiringBargBpcnValids(selectedBank)(readPtr),
+        retiringBargBpcns(selectedBank)(readPtr))
     }
   }
 
@@ -272,6 +286,8 @@ class OooIfuRawIngress(
                 retained.prediction.epoch := io.flush.newEpoch
               }
               entries(stid)(writePtr) := retained
+              retiringBargBpcnValids(stid)(writePtr) := retiringBargBpcnValids(stid)(readPtr)
+              retiringBargBpcns(stid)(writePtr) := retiringBargBpcns(stid)(readPtr)
             }
           }
           val keptCount = keepPrefix(depthPerStid)
@@ -294,6 +310,8 @@ class OooIfuRawIngress(
         val writePtr = advancePtr(tails(inBank), writeOffset)
         when(inMask(lane)) {
           entries(inBank)(writePtr) := io.ifuD1.bits.entries(lane)
+          retiringBargBpcnValids(inBank)(writePtr) := inRetiringBargBpcnValid
+          retiringBargBpcns(inBank)(writePtr) := inRetiringBargBpcn
         }
       }
       tails(inBank) := advancePtr(tails(inBank), inLaneCount)

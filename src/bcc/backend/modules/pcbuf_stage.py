@@ -12,6 +12,7 @@ def build_pcbuf_stage(
     depth: int = 64,
     idx_w: int = 6,
     dispatch_w: int = 4,
+    proof_w: int = 0,
 ) -> None:
     if depth <= 0:
         raise ValueError("depth must be > 0")
@@ -24,6 +25,8 @@ def build_pcbuf_stage(
     rst = m.reset("rst")
 
     lookup_pc_i = m.input("lookup_pc_i", width=64)
+    proof_pc_pack = m.input("proof_pc_pack", width=64 * proof_w) if proof_w else None
+    proof_pc = [proof_pc_pack.slice(lsb=64 * i, width=64) for i in range(proof_w)]
 
     wr_valid = []
     wr_pc = []
@@ -97,5 +100,10 @@ def build_pcbuf_stage(
 
     m.output("lookup_hit", lookup_hit)
     m.output("lookup_is_bstart", lookup_is_bstart)
+    for query in range(proof_w):
+        proven = u(1, 0)
+        for i in range(int(depth)):
+            hit = v[i].out() & is_bstart[i].out() & (pc[i].out() == proof_pc[query])
+            proven = u(1, 1) if hit else proven
+        m.output(f"proof_proven{query}", proven)
     m.output("tail_o", tail.out())
-

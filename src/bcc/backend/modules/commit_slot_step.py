@@ -58,6 +58,10 @@ COMMIT_SLOT_INPUT_FIELD_SPECS = (
     ("pc_live", 64),
     ("commit_cond", 1),
     ("commit_tgt", 64),
+    ("commit_tgt_valid", 1),
+    ("commit_tgt_proven", 1),
+    ("trap_pending", 1),
+    ("trap_rob", 6),
     ("br_kind", 3),
     ("br_epoch", 16),
     ("br_base", 64),
@@ -85,6 +89,7 @@ COMMIT_SLOT_INPUT_FIELD_SPECS = (
     ("rob_op", 12),
     ("rob_len", 3),
     ("rob_value", 64),
+    ("rob_value_target_proven", 1),
     ("rob_is_store", 1),
     ("rob_store_addr", 64),
     ("rob_store_data", 64),
@@ -103,6 +108,9 @@ COMMIT_SLOT_INPUT_FIELD_SPECS = (
 
 COMMIT_SLOT_TRACE_FIELD_SPECS = (
     ("commit_fire", 1),
+    ("commit_effect_fire", 1),
+    ("icall_fault_set", 1),
+    ("icall_fault_rob", 6),
     ("pc", 64),
     ("pc_next", 64),
     ("commit_is_bstart", 1),
@@ -131,6 +139,8 @@ COMMIT_SLOT_LIVE_FIELD_SPECS = (
     ("pc_live", 64),
     ("commit_cond", 1),
     ("commit_tgt", 64),
+    ("commit_tgt_valid", 1),
+    ("commit_tgt_proven", 1),
     ("br_kind", 3),
     ("br_epoch", 16),
     ("br_base", 64),
@@ -187,6 +197,10 @@ def build_commit_slot_step(m: Circuit) -> None:
     pc_live = fields["pc_live"]
     commit_cond = fields["commit_cond"]
     commit_tgt = fields["commit_tgt"]
+    commit_tgt_valid = fields["commit_tgt_valid"]
+    commit_tgt_proven = fields["commit_tgt_proven"]
+    trap_pending = fields["trap_pending"]
+    trap_rob = fields["trap_rob"]
     br_kind = fields["br_kind"]
     br_epoch = fields["br_epoch"]
     br_base = fields["br_base"]
@@ -214,6 +228,7 @@ def build_commit_slot_step(m: Circuit) -> None:
     rob_op = fields["rob_op"]
     rob_len = fields["rob_len"]
     rob_value = fields["rob_value"]
+    rob_value_target_proven = fields["rob_value_target_proven"]
     rob_is_store = fields["rob_is_store"]
     rob_store_addr = fields["rob_store_addr"]
     rob_store_data = fields["rob_store_data"]
@@ -259,8 +274,11 @@ def build_commit_slot_step(m: Circuit) -> None:
     is_boundary = is_bstart_mid | is_bstop | is_macro
     is_icall_start = is_bstart & op.__eq__(c(OP_BSTART_ICALL, width=12)) & \
         rob_boundary_kind.__eq__(c(BK_ICALL, width=3))
-    retiring_bpcn_valid = commit_cond
+    retiring_bpcn_valid = commit_tgt_valid
+    retiring_bpcn_proven = commit_tgt_proven
     retiring_bpcn = commit_tgt
+    retiring_bpcn_aligned = ~retiring_bpcn.slice(lsb=0, width=1)
+    retiring_bpcn_ok = retiring_bpcn_valid & retiring_bpcn_proven & retiring_bpcn_aligned
 
     br_is_fall = br_kind.__eq__(c(BK_FALL, width=3))
     br_is_cond = br_kind.__eq__(c(BK_COND, width=3))
@@ -284,9 +302,12 @@ def build_commit_slot_step(m: Circuit) -> None:
     # on older handoff timing, only in the restored-RA side state.
     br_take_eff = is_macro._select_internal(is_fret & commit_cond, br_take_nonmacro)
 
-    fire_pre = can_run & commit_allow & rob_valid & rob_done
-    fire_pre = fire_pre & (allow_macro | (~is_macro))
-    fire_pre = fire_pre & ((~is_icall_start) | retiring_bpcn_valid)
+    eligible_pre = can_run & commit_allow & rob_valid & rob_done
+    eligible_pre = eligible_pre & (allow_macro | (~is_macro))
+    icall_trap_hit = is_icall_start & trap_pending & commit_idx.__eq__(trap_rob)
+    icall_fault_set = eligible_pre & is_icall_start & (~retiring_bpcn_ok) & (~icall_trap_hit)
+    fire_pre = eligible_pre & ((~is_icall_start) | retiring_bpcn_ok | icall_trap_hit)
+    effect_pre = fire_pre & (~icall_trap_hit)
 
     corr_epoch_match = br_corr_pending & br_corr_epoch.__eq__(br_epoch)
     # Commit is the architectural authority for SETC-driven block direction.
@@ -309,11 +330,11 @@ def build_commit_slot_step(m: Circuit) -> None:
     pc_next = is_boundary._select_internal(br_take_eff._select_internal(br_target_eff, boundary_fallthrough), pc_inc)
 
     is_halt = _op_is(m, op, OP_EBREAK, OP_INVALID)
-    redirect_pre = fire_pre & ((is_boundary & br_take_eff) | is_bstart_mid)
-    replay_redirect_pre = fire_pre & rob_is_store & replay_pending & commit_idx.__eq__(replay_store_rob)
+    redirect_pre = effect_pre & ((is_boundary & br_take_eff) | is_bstart_mid)
+    replay_redirect_pre = effect_pre & rob_is_store & replay_pending & commit_idx.__eq__(replay_store_rob)
     replay_redirect_fire = replay_redirect_pre._select_internal(c(1, width=1), replay_redirect_fire)
 
-    fret_redirect = fire_pre & is_fret & (~redirect_pre)
+    fret_redirect = effect_pre & is_fret & (~redirect_pre)
     pc_next = fret_redirect._select_internal(fret_target, pc_next)
     redirect_pre = redirect_pre | fret_redirect
     pc_next = replay_redirect_pre._select_internal(replay_pc, pc_next)
@@ -322,11 +343,12 @@ def build_commit_slot_step(m: Circuit) -> None:
     fire = fire_pre & ((~rob_is_store) | ((~commit_store_seen) & stbuf_has_space))
     bstop_gate_ok = (~is_bstop) | (~brob_active_allocated) | brob_active_ready | brob_active_exception
     fire = fire & bstop_gate_ok
-    store_commit = fire & rob_is_store
+    effect_fire = fire & (~icall_trap_hit)
+    store_commit = effect_fire & rob_is_store
     # Macro parents retire as serialized handoff points: once one retires, do
     # not let younger raw ROB slots commit in the same sweep before the
     # template-backed rows are emitted.
-    stop = redirect_pre | (fire & (is_halt | is_macro))
+    stop = redirect_pre | (fire & (is_halt | is_macro | icall_trap_hit))
 
     commit_count = commit_count + fire._zext(width=3)
 
@@ -349,7 +371,7 @@ def build_commit_slot_step(m: Circuit) -> None:
 
     commit_store_seen = store_commit._select_internal(c(1, width=1), commit_store_seen)
 
-    bstop_commit = fire & is_bstop
+    bstop_commit = effect_fire & is_bstop
     bstop_take = bstop_commit & (~brob_retire_fire)
     brob_retire_fire = bstop_take._select_internal(c(1, width=1), brob_retire_fire)
     brob_retire_bid = bstop_take._select_internal(active_block_bid, brob_retire_bid)
@@ -377,19 +399,25 @@ def build_commit_slot_step(m: Circuit) -> None:
         OP_SETC_LTUI,
     )
     op_setc_tgt = _op_is(m, op, OP_C_SETC_TGT)
-    commit_cond = (fire & is_boundary)._select_internal(c(0, width=1), commit_cond)
-    commit_tgt = (fire & is_boundary)._select_internal(c(0, width=64), commit_tgt)
-    commit_cond = (fire & op_setc_any)._select_internal(val._trunc(width=1), commit_cond)
-    commit_tgt = (fire & op_setc_tgt)._select_internal(val, commit_tgt)
-    commit_cond = (fire & op_setc_tgt)._select_internal(c(1, width=1), commit_cond)
+    commit_cond = (effect_fire & is_boundary)._select_internal(c(0, width=1), commit_cond)
+    commit_tgt = (effect_fire & is_boundary)._select_internal(c(0, width=64), commit_tgt)
+    commit_tgt_valid = (effect_fire & is_boundary)._select_internal(c(0, width=1), commit_tgt_valid)
+    commit_tgt_proven = (effect_fire & is_boundary)._select_internal(c(0, width=1), commit_tgt_proven)
+    commit_cond = (effect_fire & op_setc_any)._select_internal(val._trunc(width=1), commit_cond)
+    commit_tgt = (effect_fire & op_setc_tgt)._select_internal(val, commit_tgt)
+    commit_tgt_valid = (effect_fire & op_setc_tgt)._select_internal(c(1, width=1), commit_tgt_valid)
+    commit_tgt_proven = (effect_fire & op_setc_tgt)._select_internal(
+        rob_value_target_proven & (~val.slice(lsb=0, width=1)), commit_tgt_proven
+    )
 
-    bstart_commit = fire & (is_bstart_head | is_bstart_mid)
+    bstart_commit = effect_fire & (is_bstart_head | is_bstart_mid)
     enter_new_block = bstart_commit & (~br_take_eff)
     icall_enter = enter_new_block & is_icall_start
     commit_tgt = icall_enter._select_internal(retiring_bpcn, commit_tgt)
-    commit_cond = icall_enter._select_internal(retiring_bpcn_valid, commit_cond)
-    macro_enter = fire & is_macro & (~br_take_eff)
-    boundary_taken = fire & is_boundary & br_take_eff
+    commit_tgt_valid = icall_enter._select_internal(retiring_bpcn_valid, commit_tgt_valid)
+    commit_tgt_proven = icall_enter._select_internal(retiring_bpcn_proven, commit_tgt_proven)
+    macro_enter = effect_fire & is_macro & (~br_take_eff)
+    boundary_taken = effect_fire & is_boundary & br_take_eff
     meta_off = rob_boundary_target - pc_this
 
     active_block_uid = bstart_commit._select_internal(block_uid_this, active_block_uid)
@@ -416,22 +444,22 @@ def build_commit_slot_step(m: Circuit) -> None:
     br_off = bstop_commit._select_internal(c(0, width=64), br_off)
     br_pred_take = bstop_commit._select_internal(c(0, width=1), br_pred_take)
 
-    block_head = (fire & (is_boundary | redirect_pre))._select_internal(c(1, width=1), block_head)
-    block_head = (fire & is_bstart_head)._select_internal(c(0, width=1), block_head)
+    block_head = (effect_fire & (is_boundary | redirect_pre))._select_internal(c(1, width=1), block_head)
+    block_head = (effect_fire & is_bstart_head)._select_internal(c(0, width=1), block_head)
 
     # Head BSTART commits begin a fresh block metadata / condition domain even
     # though they are not redirecting boundaries themselves. Advance the BRU
     # correction epoch there as well so a deferred correction from the previous
     # dynamic block instance cannot leak into the next loop iteration.
-    corr_epoch_advance = fire & (is_boundary | is_bstart_head)
+    corr_epoch_advance = effect_fire & (is_boundary | is_bstart_head)
     clear_corr_boundary = corr_epoch_advance & corr_epoch_match
     br_corr_pending = clear_corr_boundary._select_internal(c(0, width=1), br_corr_pending)
     br_epoch = corr_epoch_advance._select_internal(br_epoch + c(1, width=16), br_epoch)
 
-    pc_live = fire._select_internal(pc_next, pc_live)
+    pc_live = effect_fire._select_internal(pc_next, pc_live)
     commit_allow = commit_allow & fire & (~stop)
 
-    bstop_commit = fire & is_bstop
+    bstop_commit = effect_fire & is_bstop
 
     m.output(
         "trace_pack_o",
@@ -440,6 +468,9 @@ def build_commit_slot_step(m: Circuit) -> None:
             COMMIT_SLOT_TRACE_FIELD_SPECS,
             {
                 "commit_fire": fire,
+                "commit_effect_fire": effect_fire,
+                "icall_fault_set": icall_fault_set,
+                "icall_fault_rob": commit_idx,
                 "pc": pc_this,
                 "pc_next": pc_next,
                 "commit_is_bstart": bstart_commit,
@@ -478,6 +509,8 @@ def build_commit_slot_step(m: Circuit) -> None:
                 "pc_live": pc_live,
                 "commit_cond": commit_cond,
                 "commit_tgt": commit_tgt,
+                "commit_tgt_valid": commit_tgt_valid,
+                "commit_tgt_proven": commit_tgt_proven,
                 "br_kind": br_kind,
                 "br_epoch": br_epoch,
                 "br_base": br_base,

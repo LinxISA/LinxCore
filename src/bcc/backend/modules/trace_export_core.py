@@ -1429,6 +1429,8 @@ def _build_trace_export_core(
 
     commit_allow = consts.one1
     commit_fires = []
+    commit_effect_fires = []
+    icall_fault_sets = []
     commit_pcs = []
     commit_next_pcs = []
     commit_is_bstarts = []
@@ -1457,6 +1459,7 @@ def _build_trace_export_core(
     pc_live = state.pc.out()
     commit_cond_live = state.commit_cond.out()
     commit_tgt_live = state.commit_tgt.out()
+    commit_tgt_valid_live = state.commit_tgt_valid.out()
     br_kind_live = state.br_kind.out()
     br_epoch_live = state.br_epoch.out()
     br_base_live = state.br_base_pc.out()
@@ -1474,6 +1477,10 @@ def _build_trace_export_core(
     br_corr_checkpoint_id_live = state.br_corr_checkpoint_id.out()
 
     stbuf_has_space = stbuf_count.out().ult(c(p.sq_entries, width=p.sq_w + 1))
+
+    rob_value_target_provens = [m.new_wire(width=1) for _ in range(p.commit_w)]
+    state_commit_tgt_proven_wire = m.new_wire(width=1)
+    commit_tgt_proven_live = state_commit_tgt_proven_wire
 
     # Template macro parents retire only after the template engine has
     # completed and handed off into the dedicated wait-to-commit window.
@@ -1501,6 +1508,10 @@ def _build_trace_export_core(
             "pc_live": pc_live,
             "commit_cond": commit_cond_live,
             "commit_tgt": commit_tgt_live,
+            "commit_tgt_valid": commit_tgt_valid_live,
+            "commit_tgt_proven": commit_tgt_proven_live,
+            "trap_pending": state.trap_pending.out(),
+            "trap_rob": state.trap_rob.out(),
             "br_kind": br_kind_live,
             "br_epoch": br_epoch_live,
             "br_base": br_base_live,
@@ -1528,6 +1539,7 @@ def _build_trace_export_core(
             "rob_op": rob_ops[slot],
             "rob_len": rob_lens[slot],
             "rob_value": rob_values[slot],
+            "rob_value_target_proven": rob_value_target_provens[slot],
             "rob_is_store": rob_is_stores[slot],
             "rob_store_addr": rob_st_addrs[slot],
             "rob_store_data": rob_st_datas[slot],
@@ -1551,6 +1563,8 @@ def _build_trace_export_core(
         redirect_fields = unpack_fields(commit_slot["redirect_pack_o"], COMMIT_SLOT_REDIRECT_FIELD_SPECS)
         live_fields = unpack_fields(commit_slot["live_pack_o"], COMMIT_SLOT_LIVE_FIELD_SPECS)
         commit_fires.append(trace_fields["commit_fire"])
+        commit_effect_fires.append(trace_fields["commit_effect_fire"])
+        icall_fault_sets.append(trace_fields["icall_fault_set"])
         commit_pcs.append(trace_fields["pc"])
         commit_next_pcs.append(trace_fields["pc_next"])
         commit_is_bstarts.append(trace_fields["commit_is_bstart"])
@@ -1573,6 +1587,8 @@ def _build_trace_export_core(
         pc_live = live_fields["pc_live"]
         commit_cond_live = live_fields["commit_cond"]
         commit_tgt_live = live_fields["commit_tgt"]
+        commit_tgt_valid_live = live_fields["commit_tgt_valid"]
+        commit_tgt_proven_live = live_fields["commit_tgt_proven"]
         br_kind_live = live_fields["br_kind"]
         br_epoch_live = live_fields["br_epoch"]
         br_base_live = live_fields["br_base"]
@@ -2397,6 +2413,7 @@ def _build_trace_export_core(
                 "pcb_depth": p.rob_depth,
                 "pcb_w": p.rob_w,
                 "rob_w": p.rob_w,
+                "proof_w": p.commit_w + 1,
             },
             clk=clk,
             rst=rst,
@@ -2413,6 +2430,7 @@ def _build_trace_export_core(
             state_br_base_pc=state.br_base_pc.out(),
             state_br_off=state.br_off.out(),
             state_commit_tgt=state.commit_tgt.out(),
+            proof_pc_pack=pack_bus([*rob_values, state.commit_tgt.out()]),
             **{f"disp_valid{slot}": disp_valids[slot] for slot in range(p.dispatch_w)},
             **{f"disp_pc{slot}": disp_pcs[slot] for slot in range(p.dispatch_w)},
             **{f"disp_is_bstart{slot}": disp_is_bstart[slot] for slot in range(p.dispatch_w)},
@@ -2424,6 +2442,10 @@ def _build_trace_export_core(
         bru_corr_epoch = bru_recovery["bru_corr_epoch"]
         bru_fault_set = bru_recovery["bru_fault_set"]
         bru_fault_rob = bru_recovery["bru_fault_rob"]
+        proof_proven_pack = bru_recovery["proof_proven_pack"]
+        for slot in range(p.commit_w):
+            m.assign(rob_value_target_provens[slot], proof_proven_pack.slice(lsb=slot, width=1))
+        m.assign(state_commit_tgt_proven_wire, proof_proven_pack.slice(lsb=p.commit_w, width=1))
     m.assign(rob_meta_query_idxs[rob_bru_query_slot], bru_meta_query_idx)
 
     # Lane0 decode (stable trace hook).
@@ -2479,7 +2501,7 @@ def _build_trace_export_core(
         m.assign(ren_disp_pdsts[slot], disp_pdsts[slot])
 
     for slot in range(p.commit_w):
-        m.assign(ren_commit_fires[slot], commit_fires[slot])
+        m.assign(ren_commit_fires[slot], commit_effect_fires[slot])
         m.assign(ren_commit_is_bstops[slot], commit_is_bstops[slot])
         m.assign(ren_rob_dst_kinds[slot], rob_dst_kinds[slot])
         m.assign(ren_rob_dst_aregs[slot], rob_dst_aregs[slot])
@@ -2625,9 +2647,17 @@ def _build_trace_export_core(
 
     br_corr_fault_pending_n = state.br_corr_fault_pending.out()
     br_corr_fault_rob_n = state.br_corr_fault_rob.out()
+    icall_fault_set_any = consts.zero1
+    icall_fault_rob = c(0, width=p.rob_w)
+    for slot in range(p.commit_w):
+        take_icall_fault = icall_fault_sets[slot] & (~icall_fault_set_any)
+        icall_fault_rob = take_icall_fault._select_internal(commit_idxs[slot], icall_fault_rob)
+        icall_fault_set_any = icall_fault_set_any | icall_fault_sets[slot]
     br_corr_fault_pending_n = do_flush._select_internal(consts.zero1, br_corr_fault_pending_n)
     br_corr_fault_pending_n = bru_fault_set._select_internal(consts.one1, br_corr_fault_pending_n)
     br_corr_fault_rob_n = bru_fault_set._select_internal(bru_fault_rob, br_corr_fault_rob_n)
+    br_corr_fault_pending_n = icall_fault_set_any._select_internal(consts.one1, br_corr_fault_pending_n)
+    br_corr_fault_rob_n = icall_fault_set_any._select_internal(icall_fault_rob, br_corr_fault_rob_n)
 
     commit_ctrl_args = {
         "do_flush": do_flush,
@@ -2689,11 +2719,12 @@ def _build_trace_export_core(
     state.br_corr_fault_rob.set(br_corr_fault_rob_n)
     state.halted.set(consts.one1, when=(commit_ctrl["halt_set"] | trap_retire))
 
-    commit_cond_live = macro_setc_tgt_fire._select_internal(consts.one1, commit_cond_live)
     commit_tgt_live = macro_setc_tgt_fire._select_internal(macro_setc_tgt_data, commit_tgt_live)
+    commit_tgt_valid_live = macro_setc_tgt_fire._select_internal(consts.one1, commit_tgt_valid_live)
     state.cycles.set(state.cycles.out() + consts.one64)
     state.commit_cond.set(commit_cond_live)
     state.commit_tgt.set(commit_tgt_live)
+    state.commit_tgt_valid.set(commit_tgt_valid_live)
     state.br_kind.set(br_kind_live)
     state.br_epoch.set(br_epoch_live)
     state.br_base_pc.set(br_base_live)
