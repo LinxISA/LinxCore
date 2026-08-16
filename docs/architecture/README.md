@@ -10,10 +10,12 @@ The Markdown pages own normative semantics. The machine-readable
 family, implementation owner, top-shell role, scenario, and migration input.
 It must not introduce behavior that is absent from the owning Markdown page.
 
-Run the standalone authority and coverage gate with:
+Run the authority and coverage gates from an initialized superproject checkout:
 
 ```bash
 bash tests/test_microarchitecture_contract.sh
+python3 docs/architecture/test_check_v0581_consistency.py
+python3 docs/architecture/check_v0581_consistency.py
 python3 docs/architecture/check_v0581_consistency.py --authority-root ../..
 ```
 

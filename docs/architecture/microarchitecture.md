@@ -1005,7 +1005,9 @@ Detailed recovery behavior remains documented in:
 
 - For block completion semantics, LinxCore follows the ISA-visible canonical
   block-type domain
-  `{STD, FP, SYS, MPAR, MSEQ, VPAR, VSEQ, TLSU, CUBE, VEC, SFU, FIXP}`.
+  `{STD, FP, SYS, MPAR, MSEQ, VPAR, VSEQ, TEPL, TLSU, CUBE, FIXP}`.
+- The compiled block-family domain contains `TEPL`, `TLSU`, and `CUBE`;
+  VEC/SFU are TEPL semantic engines and assembly aliases.
 - `STD`, `FP`, and `SYS` are equivalent in the two-layer completion model.
 - Dynamic block instances collapse to exactly one of three architectural
   participant sets:
@@ -1028,7 +1030,7 @@ Normative block-type routing is:
 | `MPAR`, `MSEQ`, `VPAR`, `VSEQ` | target `VEC` | canonical route; current pyCircuit facade is reduced |
 | `TLSU` | TLSU command/completion frontend; shared CSU/L2 transport | target split; reduced facade current |
 | `CUBE` | target `CUBE` | canonical boundary; current pyCircuit facade is reduced |
-| `VEC`, `SFU` | TEPL-carried operation selected by Mode/Function and catalogued engine | unsupported until descriptor/completion behavior is promoted |
+| `TEPL` | target `VEC` or `SFU`, selected by Mode/Function and the operation catalog | unsupported until descriptor/completion behavior is promoted |
 | `FIXP` | no owner | unsupported until a completion owner is promoted |
 | `FENTRY`, `FEXIT`, `FRET.*` | CTU-expanded scalar child group | `{scalar}`, `needs_engine=0`; scalar done when the final template row is eligible after all children |
 
