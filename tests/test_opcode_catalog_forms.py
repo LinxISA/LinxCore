@@ -278,8 +278,8 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             str(record["symbol"]): int(record["op_id"])
             for record in catalog["records"]
         }
-        self.assertEqual(opcode_ids["OP_BSTART_TEPL"], 21)
-        self.assertEqual(opcode_ids["OP_ADD"], 50)
+        self.assertEqual(opcode_ids["OP_BSTART_TEPL"], 19)
+        self.assertEqual(opcode_ids["OP_ADD"], 49)
         self.assertEqual(
             {symbol: opcode_ids[symbol] for symbol in (
                 "OP_BSTART_VPAR",
@@ -290,12 +290,12 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
                 "OP_V_QPUSH",
             )},
             {
-                "OP_BSTART_VPAR": 731,
-                "OP_BSTART_VSEQ": 732,
-                "OP_C_BSTART_VPAR": 733,
-                "OP_C_BSTART_VSEQ": 734,
-                "OP_V_QPOP": 735,
-                "OP_V_QPUSH": 736,
+                "OP_BSTART_VPAR": 730,
+                "OP_BSTART_VSEQ": 731,
+                "OP_C_BSTART_VPAR": 732,
+                "OP_C_BSTART_VSEQ": 733,
+                "OP_V_QPOP": 734,
+                "OP_V_QPUSH": 735,
             },
         )
 
@@ -310,32 +310,44 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         from common.decode32 import decode32_meta
 
         catalog = json.loads((ROOT / "src/common/opcode_catalog.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(catalog["source"]["release"], "0.58.0")
+        self.assertEqual(catalog["source"]["release"], "0.58.1")
         self.assertEqual(
             catalog["source"]["pto_spec_commit"],
-            "1c2cb0dcafdbc151357c83e89e7d9460b5d9f401",
+            "c381465b2b8e457e162a4246ee58bb9a2c5b49fd",
+        )
+        self.assertEqual(
+            catalog["source"]["pto_spec_tree"],
+            "463a19db3d6ba70022f18bdbca0d4b2c6ed586e4",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_content_sha256"],
-            "355e96045cd3f159c367c75d32b1b2d0a8438cd8df61def2b5d4cd650d103873",
+            "693e8c0734b48598ac35ffe7fe6f2a01037788fba30ebe026895808d23139f2c",
+        )
+        self.assertEqual(
+            catalog["source"]["pto_spec_encoding_abi"],
+            "pto-isa-0.58.1-mode-function-v1",
+        )
+        self.assertEqual(
+            catalog["source"]["pto_spec_encoding_projection_sha256"],
+            "89b872d6eaf0252200bc9349d49b9346e2a69d894cdcc2dcd0fd71911c1e0b8c",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_release_manifest_sha256"],
-            "9f9a5c81cb78b5409e88eb8007bb89d145e298377a458f15a6dbb0ee9ff0ceee",
+            "acea87af67301173e6d1c6e04014a8dc6e2f658cd2992ed658ab2589cddc7841",
         )
         self.assertEqual(
             catalog["source"]["hardware_conformance_profile_id"],
-            "pto-hardware-numeric-0.58.0-ieee-v1",
+            "pto-hardware-numeric-0.58.1-ieee-v1",
         )
         self.assertEqual(
             catalog["source"]["hardware_conformance_profile_sha256"],
-            "c4076cf8ac6ebd0c6db8a070b7c290b9928ed7f98c089538ee53ed4644e1531a",
+            "170deadacb174c933c287231fb67da1046d7989f84b6852bf353d68a495d1755",
         )
         self.assertEqual(
             catalog["source"]["numeric_conformance_vectors_sha256"],
-            "0ad9405b5b7da3803fcf3f803c66ea66918d4363e4342356b1f818804d7f30e8",
+            "59c96cc2f45f8e8f3eebb8230338b21ec3a77a99e8fb5e1c7c7b391819a6aa81",
         )
-        self.assertEqual(catalog["source"]["command_form_count"], 99)
+        self.assertEqual(catalog["source"]["command_form_count"], 74)
         self.assertEqual(catalog["source"]["tile_operation_count"], 109)
         expected_counts = {"TEPL": 87, "TLSU": 10, "CUBE": 12}
         actual_counts = {
@@ -369,6 +381,28 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         self.assertEqual(decoded.mnemonic, "b_ios")
         self.assertEqual(decoded.symbol, "OP_B_IOS")
 
+        fpatr = decode32_meta(0x00002023)
+        self.assertIsNotNone(fpatr)
+        self.assertEqual(fpatr.mnemonic, "b_fpatr")
+        self.assertEqual(fpatr.symbol, "OP_B_FPATR")
+        icall = decode32_meta(0x50166001)
+        self.assertIsNotNone(icall)
+        self.assertEqual(icall.mnemonic, "bstart_icall")
+        self.assertEqual(icall.symbol, "OP_BSTART_ICALL")
+
+        by_mnemonic = {
+            mnemonic: records for mnemonic, records in by_mnemonic.items()
+        }
+        self.assertEqual(int(by_mnemonic["b_fpatr"][0]["mask"], 0), 0x00007FFF)
+        self.assertEqual(int(by_mnemonic["b_fpatr"][0]["match"], 0), 0x00002023)
+        self.assertEqual(int(by_mnemonic["bstart_icall"][0]["mask"], 0), 0xF83FFFFF)
+        self.assertEqual(int(by_mnemonic["bstart_icall"][0]["match"], 0), 0x50166001)
+        self.assertEqual(by_mnemonic["b_fpatr"][0]["cmd_kind"], "DESC_B_FPATR")
+        self.assertEqual(by_mnemonic["bstart_icall"][0]["ooo"]["implicit_destination"], "RA")
+        self.assertEqual(by_mnemonic["bstart_icall"][0]["ooo"]["p_destination_count"], 1)
+        self.assertTrue(by_mnemonic["bstart_icall"][0]["ooo"]["requires_target_validation"])
+        self.assertTrue(by_mnemonic["bstart_icall"][0]["ooo"]["may_redirect"])
+
     def test_active_reserved_deleted_and_legacy_pto_forms_are_illegal(self) -> None:
         from common.decode32 import decode32_meta
         from common.opcode_meta_gen import opcode_meta_forms_by_mnemonic
@@ -380,12 +414,15 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             0x00911181,  # reserved TMA function 9
             0x00331181,  # unnamed/reserved CUBE function 3
             0x00039181,  # deleted generic FIXP header
+            0x18002023,  # B.FPATR reserved PreQuantMode 6
+            0x02002023,  # B.FPATR reserved ReluMode 4
+            0x00502023,  # B.FPATR reserved GroupNCode 10
         )
         for raw in reserved_raw:
             self.assertIsNone(decode32_meta(raw), f"reserved raw 0x{raw:08x}")
 
         retired_raw = (
-            0x000FA023,
+            0x00006001,  # retired generic BSTART.ICALL
             0x00003043,
             0x020FAE23,
             0x180221A3,

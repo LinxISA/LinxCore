@@ -2,8 +2,44 @@ from __future__ import annotations
 
 from pycircuit import Circuit, module
 
-from common.isa import BK_COND, BK_RET
+from common.isa import BK_COND, BK_RET, TRAP_BRU_RECOVERY_NOT_BSTART
 from common.util import make_consts
+
+
+@module(name="LinxCorePreciseTrapControlStage")
+def build_precise_trap_control_stage(m: Circuit, *, commit_w: int = 4, rob_w: int = 6) -> None:
+    c = m.const
+    do_flush = m.input("do_flush", width=1)
+    state_trap_pending = m.input("state_trap_pending", width=1)
+    state_trap_rob = m.input("state_trap_rob", width=rob_w)
+    state_trap_cause = m.input("state_trap_cause", width=32)
+    state_trap_arg0 = m.input("state_trap_arg0", width=64)
+    fault_pending = m.input("fault_pending", width=1)
+    fault_rob = m.input("fault_rob", width=rob_w)
+    fault_arg0 = m.input("fault_arg0", width=64)
+
+    trap_retire = c(0, width=1)
+    for slot in range(commit_w):
+        commit_fire = m.input(f"commit_fire{slot}", width=1)
+        commit_idx = m.input(f"commit_idx{slot}", width=rob_w)
+        trap_retire = trap_retire | (commit_fire & commit_idx.__eq__(state_trap_rob))
+    trap_retire = trap_retire & state_trap_pending
+
+    trap_pending_next = do_flush._select_internal(c(0, width=1), state_trap_pending)
+    trap_pending_next = fault_pending._select_internal(c(1, width=1), trap_pending_next)
+    trap_rob_next = fault_pending._select_internal(fault_rob, state_trap_rob)
+    trap_cause_next = fault_pending._select_internal(
+        c(TRAP_BRU_RECOVERY_NOT_BSTART, width=32), state_trap_cause
+    )
+    first_fault = fault_pending & (~state_trap_pending)
+    trap_arg0_next = first_fault._select_internal(fault_arg0, state_trap_arg0)
+
+    m.output("trap_retire", trap_retire)
+    m.output("trap_pending_next", trap_pending_next)
+    m.output("trap_rob_next", trap_rob_next)
+    m.output("trap_cause_next", trap_cause_next)
+    m.output("trap_arg0_next", trap_arg0_next)
+    m.output("fault_pending_next", trap_retire._select_internal(c(0, width=1), fault_pending))
 
 
 @module(name="LinxCoreBruRecoveryValidateStage")
@@ -68,6 +104,7 @@ def build_bru_recovery_owner(
     pcb_depth: int = 8,
     pcb_w: int = 3,
     rob_w: int = 6,
+    proof_w: int = 0,
 ) -> None:
     clk = m.clock("clk")
     rst = m.reset("rst")
@@ -85,6 +122,8 @@ def build_bru_recovery_owner(
     state_br_kind = m.input("state_br_kind", width=3)
     state_br_epoch = m.input("state_br_epoch", width=16)
     state_br_pred_take = m.input("state_br_pred_take", width=1)
+    proof_pc_pack = m.input("proof_pc_pack", width=64 * proof_w) if proof_w else None
+    proof_pc = [proof_pc_pack.slice(lsb=64 * i, width=64) for i in range(proof_w)]
 
     disp_valid = []
     disp_pc = []
@@ -163,6 +202,18 @@ def build_bru_recovery_owner(
     m.output("bru_corr_epoch", bru_recovery["bru_corr_epoch"])
     m.output("bru_fault_set", bru_recovery["bru_fault_set"])
     m.output("bru_fault_rob", bru_recovery["bru_fault_rob"])
+    proof_results = []
+    for query in range(proof_w):
+        proven = c(0, width=1)
+        for i in range(pcb_depth):
+            hit = pcb_valid[i].out() & pcb_is_bstart[i].out() & pcb_pc[i].out().__eq__(proof_pc[query])
+            proven = hit._select_internal(c(1, width=1), proven)
+        proof_results.append(proven)
+    if proof_w:
+        proof_result_pack = proof_results[0]
+        for query in range(1, proof_w):
+            proof_result_pack = m.concat(proof_results[query], proof_result_pack)
+        m.output("proof_proven_pack", proof_result_pack)
 
 
 @module(name="LinxCoreBruRecoveryBridge")
@@ -173,6 +224,7 @@ def build_bru_recovery_bridge(
     pcb_depth: int = 8,
     pcb_w: int = 3,
     rob_w: int = 6,
+    proof_w: int = 0,
 ) -> None:
     clk = m.clock("clk")
     rst = m.reset("rst")
@@ -191,6 +243,7 @@ def build_bru_recovery_bridge(
     state_br_base_pc = m.input("state_br_base_pc", width=64)
     state_br_off = m.input("state_br_off", width=64)
     state_commit_tgt = m.input("state_commit_tgt", width=64)
+    proof_pc_pack = m.input("proof_pc_pack", width=64 * proof_w) if proof_w else None
     disp_valid = []
     disp_pc = []
     disp_is_bstart = []
@@ -221,6 +274,8 @@ def build_bru_recovery_bridge(
         bind[f"disp_valid{slot}"] = disp_valid[slot]
         bind[f"disp_pc{slot}"] = disp_pc[slot]
         bind[f"disp_is_bstart{slot}"] = disp_is_bstart[slot]
+    if proof_w:
+        bind["proof_pc_pack"] = proof_pc_pack
 
     bru_recovery_owner = m.new(
         build_bru_recovery_owner,
@@ -231,6 +286,7 @@ def build_bru_recovery_bridge(
             "pcb_depth": pcb_depth,
             "pcb_w": pcb_w,
             "rob_w": rob_w,
+            "proof_w": proof_w,
         },
     ).outputs
 
@@ -242,6 +298,8 @@ def build_bru_recovery_bridge(
     m.output("bru_corr_epoch", bru_recovery_owner["bru_corr_epoch"])
     m.output("bru_fault_set", bru_recovery_owner["bru_fault_set"])
     m.output("bru_fault_rob", bru_recovery_owner["bru_fault_rob"])
+    if proof_w:
+        m.output("proof_proven_pack", bru_recovery_owner["proof_proven_pack"])
 
 
 @module(name="LinxCoreLsuViolationDetectStage")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .opcode_meta_gen import OPCODE_META_FORMS, OpcodeMeta
+from .opcode_meta_gen import OPCODE_META_FORMS, OpcodeMeta, opcode_constraints_match
 
 
 _DECODE32 = tuple(m for m in OPCODE_META_FORMS if m.source_file == "insn32.decode")
@@ -14,6 +14,8 @@ def decode32_meta(insn: int) -> OpcodeMeta | None:
         if meta.flags == "DECODE_ONLY_CARRIER":
             continue
         if (word & meta.mask) != meta.match:
+            continue
+        if not opcode_constraints_match(word, meta):
             continue
         bits = int(meta.mask).bit_count()
         if bits > best_bits:

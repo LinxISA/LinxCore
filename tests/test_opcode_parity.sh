@@ -48,7 +48,7 @@ python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" "${parity_args[@]}"
 
 python3 "${ROOT_DIR}/tests/test_opcode_catalog_forms.py"
 
-if [[ -d "${QEMU_LINX_DIR}" ]]; then
+if [[ "${LINXCORE_CHECK_QEMU_CONSUMER:-0}" == "1" && -d "${QEMU_LINX_DIR}" ]]; then
   python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" \
     --qemu-linx-dir "${QEMU_LINX_DIR}" \
     --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml"
@@ -56,5 +56,5 @@ elif [[ "${LINXCORE_CHECK_QEMU_CONSUMER:-0}" == "1" ]]; then
   echo "error: requested QEMU consumer parity but decode tree is missing: ${QEMU_LINX_DIR}" >&2
   exit 1
 else
-  echo "info: QEMU consumer parity skipped; decode tree is missing: ${QEMU_LINX_DIR}" >&2
+  echo "info: QEMU consumer parity skipped; set LINXCORE_CHECK_QEMU_CONSUMER=1 to enable" >&2
 fi

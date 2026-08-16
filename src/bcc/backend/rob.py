@@ -3,6 +3,7 @@ from __future__ import annotations
 from pycircuit import Circuit, function, module
 
 from common.isa import (
+    OP_BSTART_ICALL,
     OP_BSTART_STD_CALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
@@ -29,6 +30,7 @@ def is_start_marker_op(op, op_is):
     return op_is(
         op,
         OP_C_BSTART_STD,
+        OP_BSTART_ICALL,
         OP_C_BSTART_COND,
         OP_C_BSTART_DIRECT,
         OP_BSTART_STD_FALL,
@@ -475,7 +477,11 @@ def build_rob_entry_update_stage(
         is_macro = disp_ops[slot].__eq__(c(OP_FENTRY, width=12)) | disp_ops[slot].__eq__(c(OP_FEXIT, width=12))
         is_macro = is_macro | disp_ops[slot].__eq__(c(OP_FRET_RA, width=12)) | disp_ops[slot].__eq__(c(OP_FRET_STK, width=12))
         is_setret = disp_ops[slot].__eq__(c(OP_SETRET, width=12)) | disp_ops[slot].__eq__(c(OP_C_SETRET, width=12))
+        is_icall = disp_ops[slot].__eq__(c(OP_BSTART_ICALL, width=12))
         resolved_d2_value = is_setret._select_internal(disp_pcs[slot] + disp_imms[slot], disp_imms[slot])
+        resolved_d2_value = is_icall._select_internal(
+            disp_pcs[slot] + c(2, width=64) + disp_imms[slot], resolved_d2_value
+        )
         value_next = (hit & (is_macro | disp_resolved_d2s[slot]))._select_internal(resolved_d2_value, value_next)
     for slot in range(issue_w):
         hit = wb_fires[slot] & wb_robs[slot].__eq__(idx)

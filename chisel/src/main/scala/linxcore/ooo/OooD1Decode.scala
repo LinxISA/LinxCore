@@ -14,6 +14,7 @@ import linxcore.frontend.{FrontendInstructionDecodeLane,
 object OooD1TrapCause {
   val IllegalEncoding: BigInt = 2
   val IllegalOperandClass: BigInt = 3
+  val MissingRetiringBargBpcn: BigInt = 4
 }
 
 private[ooo] class OooD1LaneResult(val p: OooParams = OooParams()) extends Bundle {
@@ -116,7 +117,11 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
   val pairLoadDestinationIllegal =
     pairLoad && (pairDst0.kind =/= DestinationKind.Gpr || pairDst1.kind =/= DestinationKind.Gpr)
   val recipeIllegal = !recipe.valid || recipe.disposition === OooOpcodeDisposition.Illegal.U
-  val effectiveIllegal = io.in.fetchFaultValid || recipeIllegal || pairLoadDestinationIllegal
+  val fusedIcall = recipe.valid &&
+    recipe.opcode === FrontendOpcodeDecodeTable.OP_BSTART_ICALL.U
+  val missingIcallBpcn = fusedIcall && !io.in.retiringBargBpcnValid
+  val effectiveIllegal = io.in.fetchFaultValid || recipeIllegal ||
+    pairLoadDestinationIllegal || missingIcallBpcn
   val ctuParent = recipe.valid && recipe.disposition === OooOpcodeDisposition.Ctu.U && !effectiveIllegal
   val complexParent =
     recipe.valid && recipe.complexBreak && recipe.disposition === OooOpcodeDisposition.Dispatch.U &&
@@ -344,8 +349,12 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     Mux(scalarStore, 1.U, 0.U))
   uop.memory.writebackValid := storeWriteback
   uop.memory.writebackPreIndex := storeWritebackPreIndex
-  uop.boundaryTargetValid := recipe.requiresTargetValidation && legacy.io.out.immValid
-  uop.boundaryTarget := legacy.io.out.boundaryTarget
+  uop.boundaryTargetValid := Mux(fusedIcall,
+    io.in.retiringBargBpcnValid,
+    recipe.requiresTargetValidation && legacy.io.out.immValid)
+  uop.boundaryTarget := Mux(fusedIcall,
+    io.in.retiringBargBpcn,
+    legacy.io.out.boundaryTarget)
   uop.preciseTrap := effectiveIllegal
   uop.trapCause := Mux(
     io.in.fetchFaultValid,
@@ -353,7 +362,9 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     Mux(
       pairLoadDestinationIllegal,
       OooD1TrapCause.IllegalOperandClass.U(p.trapCauseWidth.W),
-      OooD1TrapCause.IllegalEncoding.U(p.trapCauseWidth.W)))
+      Mux(missingIcallBpcn,
+        OooD1TrapCause.MissingRetiringBargBpcn.U(p.trapCauseWidth.W),
+        OooD1TrapCause.IllegalEncoding.U(p.trapCauseWidth.W))))
 
   for (idx <- 0 until p.maxSourceOperands) {
     uop.sources(idx).valid := false.B
@@ -438,9 +449,10 @@ private[ooo] class OooD1DecodeLane(val p: OooParams = OooParams()) extends Modul
     uop.boundaryTargetValid := false.B
   }
 
-  val pureStartMarker =
-    recipe.valid && recipe.recipeKind === OooOpcodeRecipeKind.Boundary.U &&
-      recipe.fusionHeadClass === OooFusionClass.StartMarker.U && !effectiveIllegal
+  val pureStartMarker = recipe.valid && !effectiveIllegal && (
+    (recipe.recipeKind === OooOpcodeRecipeKind.Boundary.U &&
+      recipe.fusionHeadClass === OooFusionClass.StartMarker.U) ||
+    recipe.recipeKind === OooOpcodeRecipeKind.StartCall.U)
   val pureStopMarker =
     recipe.valid && recipe.recipeKind === OooOpcodeRecipeKind.Boundary.U &&
       recipe.fusionTailClass === OooFusionClass.StopMarker.U && !effectiveIllegal

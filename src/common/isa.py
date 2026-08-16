@@ -24,3 +24,4 @@ BK_ICALL = 6
 
 # Trap causes (software-visible in commit trace / cosim).
 TRAP_BRU_RECOVERY_NOT_BSTART = 0x0000B001
+TRAP_E_BLOCK_CFI_BAD_TARGET = 0x00000101

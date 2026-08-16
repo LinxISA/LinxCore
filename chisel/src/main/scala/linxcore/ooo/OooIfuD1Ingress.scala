@@ -19,6 +19,8 @@ class OooIfuD1IngressIO(
   /** Stops new target-STID movement without clearing retained frontend state. */
   val fence = Input(Vec(oooP.stidCount, Bool()))
   val cancel = Input(Vec(oooP.stidCount, Bool()))
+  val retiringBargBpcnValid = Input(Vec(oooP.stidCount, Bool()))
+  val retiringBargBpcn = Input(Vec(oooP.stidCount, UInt(oooP.pcWidth.W)))
 
   val ctuParentClaim = Decoupled(new OooCtuParentClaim(oooP))
   val ctuExpansionPlan = Flipped(Decoupled(new OooCtuExpansionPlan(oooP)))
@@ -62,6 +64,8 @@ class OooIfuD1Ingress(
   raw.io.ifuD1 <> io.ifuD1
   raw.io.selectStid := io.selectStid
   raw.io.fence := io.fence
+  raw.io.retiringBargBpcnValid := io.retiringBargBpcnValid
+  raw.io.retiringBargBpcn := io.retiringBargBpcn
   raw.io.flush := io.flush
   d1.io.in <> raw.io.out
 

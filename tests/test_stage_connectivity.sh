@@ -3,8 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LINX_ROOT="$(cd -- "${ROOT_DIR}/../.." && pwd)"
-QEMU_LINX_DIR="${QEMU_LINX_DIR:-${LINX_ROOT}/emulator/qemu/target/linx}"
-ISA_PROFILE="${LINXCORE_ISA_PROFILE:-}"
+ISA_PROFILE="${LINXCORE_ISA_PROFILE:-v0.58}"
 
 python3 "${ROOT_DIR}/tools/generate/lint_stage_naming.py"
 python3 "${ROOT_DIR}/tools/generate/lint_stage_spec_ownership.py"
@@ -12,12 +11,10 @@ python3 "${ROOT_DIR}/tools/generate/lint_no_stubs.py"
 python3 "${ROOT_DIR}/tools/generate/lint_engine_ownership.py"
 python3 "${ROOT_DIR}/tools/linxcoresight/lint_trace_contract_sync.py"
 parity_args=(
-  --qemu-linx-dir "${QEMU_LINX_DIR}"
+  --linxisa-root "${LINX_ROOT}"
+  --isa-profile "${ISA_PROFILE}"
   --catalog "${ROOT_DIR}/src/common/opcode_catalog.yaml"
 )
-if [[ -n "${ISA_PROFILE}" ]]; then
-  parity_args+=(--allow-source-profile "${ISA_PROFILE}")
-fi
 python3 "${ROOT_DIR}/tools/generate/check_decode_parity.py" "${parity_args[@]}"
 
 python3 - <<'PY' "${ROOT_DIR}"

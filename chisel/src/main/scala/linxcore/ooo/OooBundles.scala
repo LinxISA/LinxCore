@@ -122,6 +122,9 @@ class ArchitecturalParentRef(val p: OooParams = OooParams()) extends Bundle {
 /** One fixed-64-bit IFU or CTU parent presented to production OOO D1. */
 class OooRawInstruction(val p: OooParams = OooParams()) extends Bundle {
   val parent = new ArchitecturalParentRef(p)
+  /** Atomic snapshot of the retiring block's BARG.BPCN for fused ICALL. */
+  val retiringBargBpcnValid = Bool()
+  val retiringBargBpcn = UInt(p.pcWidth.W)
   val fetchFaultValid = Bool()
   val fetchFaultCause = UInt(p.trapCauseWidth.W)
 }

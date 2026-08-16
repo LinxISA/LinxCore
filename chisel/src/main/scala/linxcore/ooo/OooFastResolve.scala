@@ -189,7 +189,9 @@ class OooFastResolve(val p: OooParams = OooParams()) extends Module {
         }
         entry.prediction := primaryParent.prediction
         val immediateResult = primaryParent.pc + decodedUop.immediate
-        val callResult = primaryParent.pc + primaryParent.lengthBytes
+        // Fused ICALL return labels are independent of the retiring BARG
+        // target: RA = P + 2 + (uimm5 << 1), normalized by D1 as immediate.
+        val callResult = primaryParent.pc + 2.U + decodedUop.immediate
         entry.resultValid := decodedUop.recipe.fastResolveClass ===
           OooFastResolveClass.ImmediateProducer.U ||
           decodedUop.recipe.fastResolveClass ===

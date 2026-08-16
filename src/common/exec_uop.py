@@ -15,6 +15,7 @@ from .isa import (
     OP_ANDIW,
     OP_ANDW,
     OP_BSTART_STD_CALL,
+    OP_BSTART_ICALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
     OP_BSTART_STD_FALL,
@@ -216,6 +217,7 @@ def exec_uop_comb(
     op_bstart_std_direct = op.__eq__(OP_BSTART_STD_DIRECT)
     op_bstart_std_cond = op.__eq__(OP_BSTART_STD_COND)
     op_bstart_std_call = op.__eq__(OP_BSTART_STD_CALL)
+    op_bstart_icall = op.__eq__(OP_BSTART_ICALL)
     op_fentry = op.__eq__(OP_FENTRY)
     op_fexit = op.__eq__(OP_FEXIT)
     op_fret_ra = op.__eq__(OP_FRET_RA)
@@ -400,12 +402,14 @@ def exec_uop_comb(
         | op_bstart_std_direct
         | op_bstart_std_cond
         | op_bstart_std_call
+        | op_bstart_icall
         | op_fentry
         | op_fexit
         | op_fret_ra
         | op_fret_stk
     )
     alu = is_marker._select_internal(imm, alu)
+    alu = op_bstart_icall._select_internal(pc + c(2, width=64) + imm, alu)
 
     # --- basic ALU ops ---
     alu = op_c_movr._select_internal(srcl_val, alu)
@@ -778,6 +782,7 @@ def exec_uop(
         op_bstart_std_direct = op == OP_BSTART_STD_DIRECT
         op_bstart_std_cond = op == OP_BSTART_STD_COND
         op_bstart_std_call = op == OP_BSTART_STD_CALL
+        op_bstart_icall = op == OP_BSTART_ICALL
         op_fentry = op == OP_FENTRY
         op_fexit = op == OP_FEXIT
         op_fret_ra = op == OP_FRET_RA
@@ -961,12 +966,21 @@ def exec_uop(
             | op_bstart_std_direct
             | op_bstart_std_cond
             | op_bstart_std_call
+            | op_bstart_icall
             | op_fentry
             | op_fexit
             | op_fret_ra
             | op_fret_stk
         ):
             alu = imm
+            is_load = z1
+            is_store = z1
+            size = z4
+            addr = z64
+            wdata = z64
+
+        if op_bstart_icall:
+            alu = pc + 2 + imm
             is_load = z1
             is_store = z1
             size = z4

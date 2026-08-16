@@ -1,6 +1,7 @@
 package linxcore.frontend
 
 import chisel3._
+import chisel3.simulator.scalatest.ChiselSim
 import circt.stage.ChiselStage
 import linxcore.common.{
   BoundaryKind,
@@ -27,7 +28,14 @@ object FrontendDecodeStageReference {
   def decode(word: BigInt, lenBytes: Int): Option[FrontendOpcodeDecodeTable.Rule] =
     FrontendOpcodeDecodeTable.Rules.find(rule =>
       !FrontendOpcodeDecodeTable.isDecodeOnlyCarrier(rule) &&
-      rule.lenBytes == lenBytes && ((word & rule.mask) == rule.value))
+      rule.lenBytes == lenBytes && ((word & rule.mask) == rule.value) &&
+      rule.constraints.forall { constraint =>
+        val value = constraint.pieces.foldLeft(BigInt(0)) { case (acc, piece) =>
+          val pieceMask = (BigInt(1) << piece.width) - 1
+          acc | (((word >> piece.instructionLsb) & pieceMask) << piece.valueLsb)
+        }
+        constraint.allowedValues.contains(value)
+      })
 
   private def sext(value: BigInt, width: Int): BigInt = {
     val mask = (BigInt(1) << width) - 1
@@ -400,27 +408,27 @@ class FrontendRegAliasClassifyProbe(val p: InterfaceParams = InterfaceParams()) 
   io.dst := FrontendRegAliasClassify.destination(p, io.dstValid, io.dstTag)
 }
 
-class FrontendDecodeStageSpec extends AnyFunSuite {
+class FrontendDecodeStageSpec extends AnyFunSuite with ChiselSim {
   import FrontendDecodeStageReference._
 
   test("generated opcode table preserves pyCircuit catalog IDs and rule count") {
-    assert(FrontendOpcodeDecodeTable.RuleCount == 862)
-    assert(FrontendOpcodeDecodeTable.OP_ADD == 50)
+    assert(FrontendOpcodeDecodeTable.RuleCount == 861)
+    assert(FrontendOpcodeDecodeTable.OP_ADD == 49)
     assert(FrontendOpcodeDecodeTable.OP_LD == 339)
     assert(FrontendOpcodeDecodeTable.OP_SD == 378)
     assert(FrontendOpcodeDecodeTable.OP_BIOR == 413)
-    assert(FrontendOpcodeDecodeTable.OP_C_BSTOP == 36)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTOP == 34)
     assert(FrontendOpcodeDecodeTable.OP_BSTOP == 663)
     assert(FrontendOpcodeDecodeTable.OP_BSTART_CUBE == 1)
-    assert(FrontendOpcodeDecodeTable.OP_BSTART_TLSU == 22)
-    assert(FrontendOpcodeDecodeTable.OP_CASB == 64)
-    assert(FrontendOpcodeDecodeTable.OP_DMA == 75)
-    assert(FrontendOpcodeDecodeTable.OP_BSTART_VPAR == 731)
-    assert(FrontendOpcodeDecodeTable.OP_BSTART_VSEQ == 732)
-    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VPAR == 733)
-    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VSEQ == 734)
-    assert(FrontendOpcodeDecodeTable.OP_V_QPOP == 735)
-    assert(FrontendOpcodeDecodeTable.OP_V_QPUSH == 736)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_TLSU == 20)
+    assert(FrontendOpcodeDecodeTable.OP_CASB == 63)
+    assert(FrontendOpcodeDecodeTable.OP_DMA == 74)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_VPAR == 730)
+    assert(FrontendOpcodeDecodeTable.OP_BSTART_VSEQ == 731)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VPAR == 732)
+    assert(FrontendOpcodeDecodeTable.OP_C_BSTART_VSEQ == 733)
+    assert(FrontendOpcodeDecodeTable.OP_V_QPOP == 734)
+    assert(FrontendOpcodeDecodeTable.OP_V_QPUSH == 735)
     assert(FrontendOpcodeDecodeTable.OperandREG == 1)
     assert(FrontendOpcodeDecodeTable.ImmUIMM12 != FrontendOpcodeDecodeTable.ImmSIMM12_20_S12)
   }
@@ -435,7 +443,6 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
 
   test("indirect block-boundary opcodes preserve IND and ICALL ownership") {
     val expectedBoundaryCodes = Seq(
-      FrontendOpcodeDecodeTable.OP_BSTART_FP_ICALL -> 6,
       FrontendOpcodeDecodeTable.OP_BSTART_FP_IND -> 5,
       FrontendOpcodeDecodeTable.OP_BSTART_ICALL -> 6,
       FrontendOpcodeDecodeTable.OP_BSTART_IND -> 5,
@@ -491,6 +498,12 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(decode(0x5096, lenBytes = 2).map(_.symbol).contains("OP_C_SETRET"))
     assert(decode(0x00000001L, lenBytes = 4).map(_.symbol).contains("OP_BSTOP"))
     assert(decode(0x00002001L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_STD_DIRECT"))
+    assert(decode(0x00002023L, lenBytes = 4).map(_.symbol).contains("OP_B_FPATR"))
+    assert(decode(0x50166001L, lenBytes = 4).map(_.symbol).contains("OP_BSTART_ICALL"))
+    assert(decode(0x00006001L, lenBytes = 4).isEmpty)
+    assert(decode(0x18002023L, lenBytes = 4).isEmpty)
+    assert(decode(0x02002023L, lenBytes = 4).isEmpty)
+    assert(decode(0x00502023L, lenBytes = 4).isEmpty)
     assert(decode(0x00000005L, lenBytes = 4).map(_.symbol).contains("OP_ADD"))
     assert(decode(0x00003009L, lenBytes = 4).map(_.symbol).contains("OP_LD"))
     assert(decode(0x00003049L, lenBytes = 4).map(_.symbol).contains("OP_SD"))
@@ -505,12 +518,43 @@ class FrontendDecodeStageSpec extends AnyFunSuite {
     assert(decode(0x00911181L, lenBytes = 4).isEmpty)
     assert(decode(0x00331181L, lenBytes = 4).isEmpty)
     assert(decode(0x00039181L, lenBytes = 4).isEmpty)
-    assert(decode(0x000fa023L, lenBytes = 4).isEmpty)
     assert(decode(0x0000001BL, lenBytes = 4).map(_.symbol).contains("OP_CASB"))
     assert(decode(0x0000101BL, lenBytes = 4).map(_.symbol).contains("OP_CASH"))
     assert(decode(0x0000201BL, lenBytes = 4).map(_.symbol).contains("OP_CASW"))
     assert(decode(0x0000301BL, lenBytes = 4).map(_.symbol).contains("OP_CASD"))
     assert(decode(0x0000700BL, lenBytes = 4).map(_.symbol).contains("OP_DMA"))
+  }
+
+  test("hardware decode accepts v0.58.1 ICALL and B.FPATR while rejecting retired and reserved forms") {
+    val p = InterfaceParams()
+    simulate(new FrontendDecodeStageProbe(p)) { dut =>
+      dut.io.d1.poke(0.U.asTypeOf(dut.io.d1))
+      dut.io.slots.poke(0.U.asTypeOf(dut.io.slots))
+      dut.io.d1.valid.poke(true.B)
+      dut.io.slots(0).valid.poke(true.B)
+      dut.io.slots(0).lenBytes.poke(4.U)
+      dut.io.validMask.poke(1.U)
+      dut.io.flushValid.poke(false.B)
+
+      def expectDecode(raw: BigInt, opcode: Int): Unit = {
+        dut.io.slots(0).insnRaw.poke(raw.U)
+        dut.io.outValidMask.expect(1.U)
+        dut.io.invalidOpcodeMask.expect(0.U)
+        dut.io.out(0).opcode.expect(opcode.U)
+      }
+      def expectIllegal(raw: BigInt): Unit = {
+        dut.io.slots(0).insnRaw.poke(raw.U)
+        dut.io.outValidMask.expect(0.U)
+        dut.io.invalidOpcodeMask.expect(1.U)
+      }
+
+      expectDecode(BigInt("00002023", 16), FrontendOpcodeDecodeTable.OP_B_FPATR)
+      expectDecode(BigInt("50166001", 16), FrontendOpcodeDecodeTable.OP_BSTART_ICALL)
+      expectIllegal(BigInt("00006001", 16))
+      expectIllegal(BigInt("18002023", 16))
+      expectIllegal(BigInt("02002023", 16))
+      expectIllegal(BigInt("00502023", 16))
+    }
   }
 
   test("reference decode classifies dispatch and block sidebands") {

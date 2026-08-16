@@ -34,12 +34,27 @@ def _emit_py_meta(out: Path, records: list[dict]) -> None:
         records_by_mnemonic.setdefault(record["mnemonic"], []).append(record)
 
     def meta_expr(record: dict) -> str:
+        constraints = tuple(
+            (
+                tuple(
+                    (
+                        int(piece["instruction_lsb"]),
+                        int(piece["value_lsb"]),
+                        int(piece["width"]),
+                    )
+                    for piece in constraint["pieces"]
+                ),
+                tuple(int(value) for value in constraint["allowed_values"]),
+            )
+            for constraint in record.get("constraints", [])
+        )
         return (
             "OpcodeMeta(op_id={op_id}, symbol=\"{symbol}\", mnemonic=\"{mnemonic}\", "
             "major_cat=\"{major_cat}\", minor_cat=\"{minor_cat}\", insn_len={enc_len}, mask={mask}, match={match}, "
             "rd_kind=\"{rd_kind}\", rs1_kind=\"{rs1_kind}\", rs2_kind=\"{rs2_kind}\", imm_kind=\"{imm_kind}\", "
-            "block_kind=\"{block_kind}\", cmd_kind=\"{cmd_kind}\", flags=\"{flags}\", source_file=\"{source_file}\")"
-        ).format(**record)
+            "block_kind=\"{block_kind}\", cmd_kind=\"{cmd_kind}\", flags=\"{flags}\", source_file=\"{source_file}\", "
+            "constraints={constraints_expr!r})"
+        ).format(constraints_expr=constraints, **record)
 
     lines: list[str] = []
     lines.append("from __future__ import annotations")
@@ -85,6 +100,16 @@ def _emit_py_meta(out: Path, records: list[dict]) -> None:
     lines.append("    cmd_kind: str")
     lines.append("    flags: str")
     lines.append("    source_file: str")
+    lines.append("    constraints: tuple[tuple[tuple[tuple[int, int, int], ...], tuple[int, ...]], ...] = ()")
+    lines.append("")
+    lines.append("def opcode_constraints_match(word: int, meta: OpcodeMeta) -> bool:")
+    lines.append("    for pieces, allowed_values in meta.constraints:")
+    lines.append("        value = 0")
+    lines.append("        for instruction_lsb, value_lsb, width in pieces:")
+    lines.append("            value |= ((word >> instruction_lsb) & ((1 << width) - 1)) << value_lsb")
+    lines.append("        if value not in allowed_values:")
+    lines.append("            return False")
+    lines.append("    return True")
     lines.append("")
     lines.append("OPCODE_META_BY_MNEMONIC = {")
     for mnemonic, forms in records_by_mnemonic.items():

@@ -13,6 +13,7 @@ from common.isa import (
     BK_IND,
     BK_RET,
     OP_BSTART_STD_CALL,
+    OP_BSTART_ICALL,
     OP_BSTART_STD_COND,
     OP_BSTART_STD_DIRECT,
     OP_BSTART_STD_FALL,
@@ -58,6 +59,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     imm0_f3 = dec0_f3.imm
     is_bstart0_f3 = (
         (op0_f3 == c(OP_C_BSTART_STD, width=12))
+        | (op0_f3 == c(OP_BSTART_ICALL, width=12))
         | (op0_f3 == c(OP_C_BSTART_COND, width=12))
         | (op0_f3 == c(OP_C_BSTART_DIRECT, width=12))
         | (op0_f3 == c(OP_BSTART_STD_FALL, width=12))
@@ -73,6 +75,7 @@ def build_janus_bcc_ifu_f3(m: Circuit, *, ibuf_depth: int = 8) -> None:
     bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_DIRECT, width=12))._select_internal(c(BK_DIRECT, width=3), bstart_kind_f3)
     bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_COND, width=12))._select_internal(c(BK_COND, width=3), bstart_kind_f3)
     bstart_kind_f3 = (op0_f3 == c(OP_BSTART_STD_CALL, width=12))._select_internal(c(BK_CALL, width=3), bstart_kind_f3)
+    bstart_kind_f3 = (op0_f3 == c(OP_BSTART_ICALL, width=12))._select_internal(c(BK_ICALL, width=3), bstart_kind_f3)
     brtype_f3 = imm0_f3[0:3]
     bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(2, width=3)))._select_internal(c(BK_DIRECT, width=3), bstart_kind_f3)
     bstart_kind_f3 = ((op0_f3 == c(OP_C_BSTART_STD, width=12)) & (brtype_f3 == c(3, width=3)))._select_internal(c(BK_COND, width=3), bstart_kind_f3)
