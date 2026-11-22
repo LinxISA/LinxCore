@@ -42,15 +42,9 @@ OP_B_DATR = 36
 OP_B_DIM_LB0 = 37
 OP_B_DIM_LB1 = 38
 OP_B_DIM_LB2 = 39
-OP_B_EQ = 40
 OP_B_FPATR = 41
-OP_B_GE = 42
-OP_B_GEU = 43
 OP_B_HINT = 44
 OP_B_HINT_TRACE = 45
-OP_B_LT = 46
-OP_B_LTU = 47
-OP_B_NE = 48
 OP_ADD = 49
 OP_ADDI = 50
 OP_ADDIW = 51
@@ -293,8 +287,6 @@ OP_XORI = 287
 OP_XORIW = 288
 OP_XORW = 289
 OP_ADDTPC = 290
-OP_B_NZ = 291
-OP_B_Z = 292
 OP_CMP_AND = 293
 OP_CMP_ANDI = 294
 OP_CMP_EQ = 295
@@ -737,6 +729,19 @@ OP_C_BSTART_VPAR = 732
 OP_C_BSTART_VSEQ = 733
 OP_V_QPOP = 734
 OP_V_QPUSH = 735
+OP_BSTART_FP_CALL = 736
+OP_BSTART_TIMG2COL = 737
+OP_B_ASSEMBLE = 738
+OP_B_SUBVIEW = 739
+OP_SB_ADD = 740
+OP_SB_SUB = 741
+OP_SD_SUB = 742
+OP_SH_ADD = 743
+OP_SH_SUB = 744
+OP_SW_SUB = 745
+OP_DMA_FREE_L = 746
+OP_DMA_FREE_S = 747
+OP_SYNC_CORE = 749
 
 __all__ = [
     "OP_INVALID",
@@ -779,15 +784,9 @@ __all__ = [
     "OP_B_DIM_LB0",
     "OP_B_DIM_LB1",
     "OP_B_DIM_LB2",
-    "OP_B_EQ",
     "OP_B_FPATR",
-    "OP_B_GE",
-    "OP_B_GEU",
     "OP_B_HINT",
     "OP_B_HINT_TRACE",
-    "OP_B_LT",
-    "OP_B_LTU",
-    "OP_B_NE",
     "OP_ADD",
     "OP_ADDI",
     "OP_ADDIW",
@@ -1030,8 +1029,6 @@ __all__ = [
     "OP_XORIW",
     "OP_XORW",
     "OP_ADDTPC",
-    "OP_B_NZ",
-    "OP_B_Z",
     "OP_CMP_AND",
     "OP_CMP_ANDI",
     "OP_CMP_EQ",
@@ -1474,4 +1471,17 @@ __all__ = [
     "OP_C_BSTART_VSEQ",
     "OP_V_QPOP",
     "OP_V_QPUSH",
+    "OP_BSTART_FP_CALL",
+    "OP_BSTART_TIMG2COL",
+    "OP_B_ASSEMBLE",
+    "OP_B_SUBVIEW",
+    "OP_SB_ADD",
+    "OP_SB_SUB",
+    "OP_SD_SUB",
+    "OP_SH_ADD",
+    "OP_SH_SUB",
+    "OP_SW_SUB",
+    "OP_DMA_FREE_L",
+    "OP_DMA_FREE_S",
+    "OP_SYNC_CORE",
 ]

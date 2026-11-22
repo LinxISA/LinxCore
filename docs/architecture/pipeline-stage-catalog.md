@@ -527,10 +527,10 @@ Specifications and new interfaces must use only the canonical meanings above.
 - Owner module: `src/vec/vec.py` (`LinxCoreVec`)
 - Design role: vector-engine command/response boundary.
 
-### Legacy `tau` compatibility shell
+### TAU
 
 - Owner module: `src/tau/tau.py` (`JanusTau`)
-- Design role: retained implementation shell only. It is not an architectural
+- Design role: legacy trace-stage token and retained implementation shell. It is not an architectural
   engine and does not own v0.58.1 execution semantics.
 
 ### TEPL carrier — target VEC/SFU dispatch

@@ -37,7 +37,12 @@ TRACE_STAGE_TO_DOC_COORDINATE = {
     "F2": "I-F2",
     "F3": "I-F3",
     "F4": "I-F4",
+    # Trace schema retains the historical stage token while the architecture
+    # catalog uses the v0.58 semantic engine name for this boundary.
+    "TMA": "TLSU",
 }
+
+DOCUMENTED_NON_TRACE_STAGES = {"SFU"}
 
 
 def _parse_stage_owner_paths(text: str) -> dict[str, list[str]]:
@@ -137,6 +142,7 @@ def main() -> int:
         set(owners)
         - set(expected_doc_coordinates)
         - set(CANONICAL_STAGE_COORDINATES)
+        - DOCUMENTED_NON_TRACE_STAGES
     )
     if extra:
         errors.append(f"{DOC}: undocumented stage ids not present in stage token catalog: {', '.join(extra)}")
