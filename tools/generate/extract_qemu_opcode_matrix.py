@@ -30,10 +30,19 @@ def main() -> int:
         default="v0.58",
         help="Locked LinxISA profile (default: v0.58)",
     )
+    ap.add_argument(
+        "--compatibility-catalog",
+        default=str(LINXCORE_ROOT / "src/common/opcode_catalog.yaml"),
+        help="Existing catalog whose numeric opcode IDs remain reserved and stable",
+    )
     args = ap.parse_args()
 
     out = Path(args.out)
-    catalog = build_locked_catalog(Path(args.linxisa_root), profile=args.isa_profile)
+    catalog = build_locked_catalog(
+        Path(args.linxisa_root),
+        profile=args.isa_profile,
+        compatibility_catalog=Path(args.compatibility_catalog),
+    )
     save_catalog(out, catalog)
 
     records = catalog["records"]
