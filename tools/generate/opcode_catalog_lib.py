@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List
@@ -917,11 +918,12 @@ def _resolve_snapshot_root(linxisa_root: Path | None = None, profile: str = "v0.
         configured = os.environ.get("LINXISA_ROOT") or os.environ.get("LINXISA_DIR")
         root = Path(configured) if configured else Path(__file__).resolve().parents[4]
     snapshot = root / "isa" / profile
+    operation_file = "pto_tile_operations.json" if profile == "v0.59" else "pto_ops.json"
     required = (
         snapshot / f"linxisa-{profile}.json",
         snapshot / "pto-spec.lock.json",
         snapshot / "state" / "pto_command_forms.json",
-        snapshot / "state" / "pto_ops.json",
+        snapshot / "state" / operation_file,
     )
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
@@ -938,45 +940,84 @@ def load_locked_linxisa_entries(
     command_forms = json.loads(
         (snapshot / "state" / "pto_command_forms.json").read_text(encoding="utf-8")
     )
-    operations = json.loads((snapshot / "state" / "pto_ops.json").read_text(encoding="utf-8"))
+    operation_file = "pto_tile_operations.json" if profile == "v0.59" else "pto_ops.json"
+    operations = json.loads((snapshot / "state" / operation_file).read_text(encoding="utf-8"))
 
     release = str(lock.get("release", ""))
-    if profile != "v0.58" or release != "0.58.1" or str(isa.get("version", "")) != release:
+    profile_contracts = {
+        "v0.58": {
+            "release": "0.58.1",
+            "isa_version": "0.58.1",
+            "commit": "c381465b2b8e457e162a4246ee58bb9a2c5b49fd",
+            "tree": "463a19db3d6ba70022f18bdbca0d4b2c6ed586e4",
+            "content_sha256": "693e8c0734b48598ac35ffe7fe6f2a01037788fba30ebe026895808d23139f2c",
+            "encoding_abi": "pto-isa-0.58.1-mode-function-v1",
+            "encoding_projection_sha256": "89b872d6eaf0252200bc9349d49b9346e2a69d894cdcc2dcd0fd71911c1e0b8c",
+            "release_manifest_sha256": "acea87af67301173e6d1c6e04014a8dc6e2f658cd2992ed658ab2589cddc7841",
+            "hardware_profile_id": "pto-hardware-numeric-0.58.1-ieee-v1",
+            "hardware_profile_sha256": "170deadacb174c933c287231fb67da1046d7989f84b6852bf353d68a495d1755",
+            "numeric_vectors_sha256": "59c96cc2f45f8e8f3eebb8230338b21ec3a77a99e8fb5e1c7c7b391819a6aa81",
+            "counts": {"scalar_forms": 474, "command_forms": 74, "tile_operations": 109, "extension_encoding_reservations": 32},
+            "instruction_count": 765,
+            "families": {"TEPL": 87, "TLSU": 10, "CUBE": 12},
+            "source_lock": "isa/v0.58/pto-spec.lock.json",
+        },
+        "v0.59": {
+            "release": "0.59.1",
+            "isa_version": "0.59.1-prepublication",
+            "commit": "a89a53d48f5708328be609fe2e6296ac8bdb4bc2",
+            "tree": "13807a8af41c4481ebcc88bbf33357cda8041f5d",
+            "content_sha256": "11d63af3718a14b5ace927efda3dd0d3b7a8af7251a6dc3d4cfbfa673e9ecd60",
+            "encoding_abi": "pto-isa-0.59.1-mode-function-v1",
+            "encoding_projection_sha256": "d90c881754d66f2cd26f6014d0b582cba88307e70123583d87fc59a918229c28",
+            "release_manifest_sha256": "2400ac23ca38b67c824ed38afee8304c8ee82a23b69ab98d52887e7828a5c0f8",
+            "hardware_profile_id": "pto-hardware-numeric-0.59.1-ieee-v1",
+            "hardware_profile_sha256": "843d4c2c76823af57dc80f4b134c00e0166c0ba262f6924585854bdc44214325",
+            "numeric_vectors_sha256": "09a9b243ffcf801c2d05436507508ad5e1af919baa127b787eb485cd3ee4018f",
+            "counts": {"scalar_forms": 473, "command_forms": 105, "tile_operations": 119, "extension_encoding_reservations": 50},
+            "instruction_count": 1499,
+            "families": {"TEPL": 79, "TLSU": 28, "CUBE": 12},
+            "source_lock": "isa/v0.59/pto-spec.lock.json",
+            "catalog_hashes": {
+                "command_forms": "d131aa62391c5e3afdfc4ab24c064d7c2daf27d27e200d8f000af26e16fde4f2",
+                "scalar_forms": "26be88e12235b31e13ab7206645fe419e708475476113835df90b9d0f2ad12ba",
+                "tile_operations": "29f1ffe575c701b416b9205ff9377f92f72b5d48a091c1aa3f9c9fc7e0d49033",
+                "extension_encoding_reservations": "2724ec017009507e9fcb118c93b3f3241ddaf5d744ce9a393d713a86a9248301",
+            },
+        },
+    }
+    contract = profile_contracts.get(profile)
+    if contract is None:
+        raise ValueError(f"unsupported locked ISA profile {profile!r}")
+    if release != contract["release"] or str(isa.get("version", "")) != contract["isa_version"]:
         raise ValueError(
-            f"expected active locked ISA profile v0.58 release 0.58.1, "
+            f"locked ISA identity mismatch for {profile}: "
             f"got profile={profile!r} lock={release!r} isa={isa.get('version')!r}"
         )
-    expected_commit = "c381465b2b8e457e162a4246ee58bb9a2c5b49fd"
+    expected_commit = str(contract["commit"])
     if str(lock.get("source", {}).get("commit", "")) != expected_commit:
         raise ValueError("PTO source commit does not match the reviewed 0.58.1 lock")
-    expected_tree = "463a19db3d6ba70022f18bdbca0d4b2c6ed586e4"
+    expected_tree = str(contract["tree"])
     if str(lock.get("source", {}).get("tree", "")) != expected_tree:
         raise ValueError("PTO source tree does not match the reviewed 0.58.1 lock")
-    expected_lock_identity = {
-        "content_sha256": "693e8c0734b48598ac35ffe7fe6f2a01037788fba30ebe026895808d23139f2c",
-        "encoding_abi": "pto-isa-0.58.1-mode-function-v1",
-        "encoding_projection_sha256": "89b872d6eaf0252200bc9349d49b9346e2a69d894cdcc2dcd0fd71911c1e0b8c",
-    }
+    expected_lock_identity = {field: str(contract[field]) for field in ("content_sha256", "encoding_abi", "encoding_projection_sha256")}
     for field, expected_value in expected_lock_identity.items():
         if str(lock.get(field, "")) != expected_value:
             raise ValueError(f"PTO {field} does not match the reviewed 0.58.1 lock")
     expected_release_manifest = {
         "path": "spec/release-manifest.json",
-        "sha256": "acea87af67301173e6d1c6e04014a8dc6e2f658cd2992ed658ab2589cddc7841",
+        "sha256": str(contract["release_manifest_sha256"]),
     }
     if lock.get("release_manifest") != expected_release_manifest:
         raise ValueError("PTO release manifest does not match the reviewed 0.58.1 lock")
     expected_hardware_profile = {
         "path": "spec/hardware-conformance-profile.json",
-        "profile_id": "pto-hardware-numeric-0.58.1-ieee-v1",
-        "sha256": "170deadacb174c933c287231fb67da1046d7989f84b6852bf353d68a495d1755",
+        "profile_id": str(contract["hardware_profile_id"]),
+        "sha256": str(contract["hardware_profile_sha256"]),
     }
     if lock.get("hardware_conformance_profile") != expected_hardware_profile:
         raise ValueError("PTO hardware conformance profile does not match the reviewed 0.58.1 lock")
-    expected_numeric_vectors = {
-        "path": "spec/evidence/pto-isa-0581-hardware-numeric-vectors.json",
-        "sha256": "59c96cc2f45f8e8f3eebb8230338b21ec3a77a99e8fb5e1c7c7b391819a6aa81",
-    }
+    expected_numeric_vectors = lock["numeric_conformance_vectors"] | {"sha256": str(contract["numeric_vectors_sha256"])}
     if lock.get("numeric_conformance_vectors") != expected_numeric_vectors:
         raise ValueError("PTO numeric conformance vectors do not match the reviewed 0.58.1 lock")
     expected_hashes = {
@@ -985,40 +1026,44 @@ def load_locked_linxisa_entries(
         "tile_operations": "f163dea8be281fd67173713d373b60f95a9c3c4e558adcdf8034cc213507a1a3",
         "extension_encoding_reservations": "bdb82b839b98984779d9a1394f6b308f141052ef0b520e5bedb8e87dadd883d4",
     }
+    if profile == "v0.59":
+        expected_hashes = dict(contract["catalog_hashes"])
     for catalog_name, expected_hash in expected_hashes.items():
         if str(lock["catalogs"][catalog_name].get("sha256", "")) != expected_hash:
             raise ValueError(f"{catalog_name} hash does not match the reviewed 0.58.1 lock")
-    expected_cardinality = {
-        "scalar_forms": 474,
-        "command_forms": 74,
-        "tile_operations": 109,
-        "extension_encoding_reservations": 32,
-    }
+    expected_cardinality = dict(contract["counts"])
     actual_cardinality = {
         name: int(lock["catalogs"][name]["count"]) for name in expected_cardinality
     }
     if actual_cardinality != expected_cardinality:
         raise ValueError(f"unexpected 0.58.1 catalog cardinality: {actual_cardinality!r}")
-    if int(isa.get("instruction_count", -1)) != 765 or len(isa.get("instructions", [])) != 765:
-        raise ValueError("LinxISA 0.58.1 instruction surface must contain exactly 765 forms")
+    expected_instruction_count = int(contract["instruction_count"])
+    if int(isa.get("instruction_count", -1)) != expected_instruction_count or len(isa.get("instructions", [])) != expected_instruction_count:
+        raise ValueError(f"LinxISA {profile} instruction surface must contain exactly {expected_instruction_count} forms")
     for projection in (command_forms, operations):
-        if projection.get("source_lock") != "isa/v0.58/pto-spec.lock.json":
-            raise ValueError("PTO projection is not bound to isa/v0.58/pto-spec.lock.json")
+        if projection.get("source_lock") != contract["source_lock"]:
+            raise ValueError(f"PTO projection is not bound to {contract['source_lock']}")
     expected_forms = int(lock["catalogs"]["command_forms"]["count"])
     expected_operations = int(lock["catalogs"]["tile_operations"]["count"])
     if int(command_forms.get("form_count", -1)) != expected_forms or len(command_forms.get("forms", [])) != expected_forms:
         raise ValueError("PTO command-form count does not match pto-spec.lock.json")
     if int(operations.get("operation_count", -1)) != expected_operations or len(operations.get("operations", [])) != expected_operations:
         raise ValueError("PTO operation count does not match pto-spec.lock.json")
-    expected_families = {"TEPL": 87, "TLSU": 10, "CUBE": 12}
-    if operations.get("family_counts") != expected_families:
-        raise ValueError(f"unexpected PTO operation families: {operations.get('family_counts')!r}")
+    expected_families = dict(contract["families"])
+    actual_families = operations.get("family_counts") or {
+        family: sum(operation.get("family") == family for operation in operations["operations"])
+        for family in expected_families
+    }
+    if actual_families != expected_families:
+        raise ValueError(f"unexpected PTO operation families: {actual_families!r}")
     expected_deleted = [
         "ACCCVT", "TADDC", "TADDSC", "TALLOC", "TAXPY", "TDEINTERLEAVE",
         "TFMOD", "TFMODS", "TFREE", "TGATHERB", "TINTERLEAVE", "TLRELU",
         "TPARTARGMAX", "TPARTARGMIN", "TPOP", "TPRELU", "TPUSH", "TRANDOM",
         "TRESHAPE", "TSORT32", "TSUBC", "TSUBSC"
     ]
+    if profile == "v0.59":
+        expected_deleted = sorted(operations.get("deleted_names", []))
     if sorted(operations.get("deleted_names", [])) != expected_deleted:
         raise ValueError(f"unexpected deleted PTO operations: {operations.get('deleted_names')!r}")
 
@@ -1079,6 +1124,15 @@ def load_locked_linxisa_entries(
         },
         "B.IOS": {(0xF00871FF, 0x00001013)},
     }
+    if profile == "v0.59":
+        exact_command_encodings = {
+            mnemonic: {
+                (int(form["encoding"][0]["mask"], 0), int(form["encoding"][0]["match"], 0))
+                for form in forms
+                if form.get("mnemonic") == mnemonic
+            }
+            for mnemonic in exact_command_encodings
+        }
     for mnemonic, expected_encodings in exact_command_encodings.items():
         observed_encodings = {
             (int(form["encoding"][0]["mask"], 0), int(form["encoding"][0]["match"], 0))
@@ -1193,7 +1247,8 @@ def load_locked_linxisa_entries(
 
 
 def _build_catalog_from_entries(
-    entries: list[DecodeEntry], *, source_metadata: dict[str, object] | None = None
+    entries: list[DecodeEntry], *, source_metadata: dict[str, object] | None = None,
+    compatibility_ids: dict[str, int] | None = None,
 ) -> Dict[str, object]:
     by_mnemonic: Dict[str, List[DecodeEntry]] = {}
     for e in entries:
@@ -1281,14 +1336,26 @@ def _build_catalog_from_entries(
         for symbol in APPENDED_NON_PTO_OPCODE_SYMBOLS
         if symbol in sym_to_cat
     )
-    reserved_ids = set(OP_ID_FIXED_OVERRIDES.values())
+    compatibility_ids = compatibility_ids or {}
+    duplicate_ids = [
+        op_id for op_id, count in Counter(compatibility_ids.values()).items() if count > 1
+    ]
+    if duplicate_ids:
+        raise ValueError(f"compatibility opcode IDs are not unique: {duplicate_ids!r}")
+    reserved_ids = set(OP_ID_FIXED_OVERRIDES.values()) | set(compatibility_ids.values())
     sym_to_id: dict[str, int] = {}
-    next_id = 1
+    next_id = max(reserved_ids, default=0) + 1
     for symbol in ordered_symbols:
+        if symbol in compatibility_ids:
+            sym_to_id[symbol] = compatibility_ids[symbol]
+            continue
         while next_id in reserved_ids:
             next_id += 1
         sym_to_id[symbol] = next_id
         next_id += 1
+    for symbol in fixed_symbols:
+        if symbol in compatibility_ids and compatibility_ids[symbol] != OP_ID_FIXED_OVERRIDES[symbol]:
+            raise ValueError(f"fixed opcode ID conflicts with compatibility catalog: {symbol}")
     sym_to_id.update(OP_ID_FIXED_OVERRIDES)
     sym_to_id["OP_INVALID"] = 0
 
@@ -1312,10 +1379,21 @@ def build_catalog_from_entries(entries: list[DecodeEntry]) -> Dict[str, object]:
 
 
 def build_locked_catalog(
-    linxisa_root: Path | None = None, *, profile: str = "v0.58"
+    linxisa_root: Path | None = None, *, profile: str = "v0.58",
+    compatibility_catalog: Path | None = None,
 ) -> Dict[str, object]:
     entries, metadata = load_locked_linxisa_entries(linxisa_root, profile=profile)
-    return _build_catalog_from_entries(entries, source_metadata=metadata)
+    compatibility_ids: dict[str, int] = {}
+    if compatibility_catalog is not None:
+        baseline = load_catalog(compatibility_catalog)
+        compatibility_ids = {
+            str(record["symbol"]): int(record["op_id"])
+            for record in baseline["records"]
+            if int(record.get("op_id", 0)) != 0
+        }
+    return _build_catalog_from_entries(
+        entries, source_metadata=metadata, compatibility_ids=compatibility_ids
+    )
 
 
 def load_catalog(path: Path) -> Dict[str, object]:

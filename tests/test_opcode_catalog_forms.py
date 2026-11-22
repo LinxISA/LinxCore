@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ACTIVE_PROFILE = os.environ.get("LINXCORE_ISA_PROFILE", "v0.58")
 GENERATE = ROOT / "tools" / "generate"
 sys.path.insert(0, str(GENERATE))
 sys.path.insert(0, str(ROOT / "src"))
@@ -332,46 +334,55 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         from common.decode32 import decode32_meta
 
         catalog = json.loads((ROOT / "src/common/opcode_catalog.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(catalog["source"]["release"], "0.58.1")
+        expected = {
+            "v0.58": ("0.58.1", "c381465b2b8e457e162a4246ee58bb9a2c5b49fd", {"TEPL": 87, "TLSU": 10, "CUBE": 12}, 74, 109),
+            "v0.59": ("0.59.1", "a89a53d48f5708328be609fe2e6296ac8bdb4bc2", {"TEPL": 79, "TLSU": 28, "CUBE": 12}, 105, 119),
+        }[ACTIVE_PROFILE]
+        self.assertEqual(catalog["source"]["release"], expected[0])
         self.assertEqual(
             catalog["source"]["pto_spec_commit"],
-            "c381465b2b8e457e162a4246ee58bb9a2c5b49fd",
+            expected[1],
         )
+        if ACTIVE_PROFILE == "v0.59":
+            self.assertEqual(catalog["source"]["command_form_count"], expected[3])
+            self.assertEqual(catalog["source"]["tile_operation_count"], expected[4])
+            expected_counts = expected[2]
+        else:
+            expected_counts = expected[2]
         self.assertEqual(
             catalog["source"]["pto_spec_tree"],
-            "463a19db3d6ba70022f18bdbca0d4b2c6ed586e4",
+            "13807a8af41c4481ebcc88bbf33357cda8041f5d" if ACTIVE_PROFILE == "v0.59" else "463a19db3d6ba70022f18bdbca0d4b2c6ed586e4",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_content_sha256"],
-            "693e8c0734b48598ac35ffe7fe6f2a01037788fba30ebe026895808d23139f2c",
+            "11d63af3718a14b5ace927efda3dd0d3b7a8af7251a6dc3d4cfbfa673e9ecd60" if ACTIVE_PROFILE == "v0.59" else "693e8c0734b48598ac35ffe7fe6f2a01037788fba30ebe026895808d23139f2c",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_encoding_abi"],
-            "pto-isa-0.58.1-mode-function-v1",
+            "pto-isa-0.59.1-mode-function-v1" if ACTIVE_PROFILE == "v0.59" else "pto-isa-0.58.1-mode-function-v1",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_encoding_projection_sha256"],
-            "89b872d6eaf0252200bc9349d49b9346e2a69d894cdcc2dcd0fd71911c1e0b8c",
+            "d90c881754d66f2cd26f6014d0b582cba88307e70123583d87fc59a918229c28" if ACTIVE_PROFILE == "v0.59" else "89b872d6eaf0252200bc9349d49b9346e2a69d894cdcc2dcd0fd71911c1e0b8c",
         )
         self.assertEqual(
             catalog["source"]["pto_spec_release_manifest_sha256"],
-            "acea87af67301173e6d1c6e04014a8dc6e2f658cd2992ed658ab2589cddc7841",
+            "2400ac23ca38b67c824ed38afee8304c8ee82a23b69ab98d52887e7828a5c0f8" if ACTIVE_PROFILE == "v0.59" else "acea87af67301173e6d1c6e04014a8dc6e2f658cd2992ed658ab2589cddc7841",
         )
         self.assertEqual(
             catalog["source"]["hardware_conformance_profile_id"],
-            "pto-hardware-numeric-0.58.1-ieee-v1",
+            "pto-hardware-numeric-0.59.1-ieee-v1" if ACTIVE_PROFILE == "v0.59" else "pto-hardware-numeric-0.58.1-ieee-v1",
         )
         self.assertEqual(
             catalog["source"]["hardware_conformance_profile_sha256"],
-            "170deadacb174c933c287231fb67da1046d7989f84b6852bf353d68a495d1755",
+            "843d4c2c76823af57dc80f4b134c00e0166c0ba262f6924585854bdc44214325" if ACTIVE_PROFILE == "v0.59" else "170deadacb174c933c287231fb67da1046d7989f84b6852bf353d68a495d1755",
         )
         self.assertEqual(
             catalog["source"]["numeric_conformance_vectors_sha256"],
-            "59c96cc2f45f8e8f3eebb8230338b21ec3a77a99e8fb5e1c7c7b391819a6aa81",
+            "09a9b243ffcf801c2d05436507508ad5e1af919baa127b787eb485cd3ee4018f" if ACTIVE_PROFILE == "v0.59" else "59c96cc2f45f8e8f3eebb8230338b21ec3a77a99e8fb5e1c7c7b391819a6aa81",
         )
-        self.assertEqual(catalog["source"]["command_form_count"], 74)
-        self.assertEqual(catalog["source"]["tile_operation_count"], 109)
-        expected_counts = {"TEPL": 87, "TLSU": 10, "CUBE": 12}
+        self.assertEqual(catalog["source"]["command_form_count"], expected[3])
+        self.assertEqual(catalog["source"]["tile_operation_count"], expected[4])
         actual_counts = {
             family: len(
                 [record for record in catalog["records"] if record.get("operation_family") == family]
@@ -393,10 +404,10 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             by_mnemonic.setdefault(str(record["mnemonic"]), []).append(record)
         self.assertEqual(int(by_mnemonic["b_catr"][0]["mask"], 0), 0xFBF07FFF)
         self.assertEqual(int(by_mnemonic["b_catr"][0]["match"], 0), 0x00000023)
-        self.assertEqual(int(by_mnemonic["b_datr"][0]["mask"], 0), 0x000C707F)
+        self.assertEqual(int(by_mnemonic["b_datr"][0]["mask"], 0), 0x000C107F if ACTIVE_PROFILE == "v0.59" else 0x000C707F)
         self.assertEqual(int(by_mnemonic["b_datr"][0]["match"], 0), 0x00001023)
-        self.assertEqual(len(by_mnemonic["b_ios"]), 1)
-        self.assertEqual(int(by_mnemonic["b_ios"][0]["mask"], 0), 0xF00871FF)
+        self.assertEqual(len(by_mnemonic["b_ios"]), 2 if ACTIVE_PROFILE == "v0.59" else 1)
+        self.assertEqual(int(by_mnemonic["b_ios"][0]["mask"], 0), 0xFC0871FF if ACTIVE_PROFILE == "v0.59" else 0xF00871FF)
         self.assertEqual(int(by_mnemonic["b_ios"][0]["match"], 0), 0x00001013)
         decoded = decode32_meta(0x00001013)
         self.assertIsNotNone(decoded)
@@ -415,7 +426,7 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
         by_mnemonic = {
             mnemonic: records for mnemonic, records in by_mnemonic.items()
         }
-        self.assertEqual(int(by_mnemonic["b_fpatr"][0]["mask"], 0), 0x00007FFF)
+        self.assertEqual(int(by_mnemonic["b_fpatr"][0]["mask"], 0), 0x00007C7F if ACTIVE_PROFILE == "v0.59" else 0x00007FFF)
         self.assertEqual(int(by_mnemonic["b_fpatr"][0]["match"], 0), 0x00002023)
         self.assertEqual(int(by_mnemonic["bstart_icall"][0]["mask"], 0), 0xF83FFFFF)
         self.assertEqual(int(by_mnemonic["bstart_icall"][0]["match"], 0), 0x50166001)
@@ -433,13 +444,14 @@ class OpcodeCatalogFormsTest(unittest.TestCase):
             0x00519181,  # reserved TEPL selector 0x005
             0x01819181,  # reserved TEPL selector range 0x018..0x019
             0x07F19181,  # reserved TEPL selector 0x07f
-            0x00911181,  # reserved TMA function 9
             0x00331181,  # unnamed/reserved CUBE function 3
             0x00039181,  # deleted generic FIXP header
             0x18002023,  # B.FPATR reserved PreQuantMode 6
             0x02002023,  # B.FPATR reserved ReluMode 4
             0x00502023,  # B.FPATR reserved GroupNCode 10
         )
+        if ACTIVE_PROFILE == "v0.58":
+            reserved_raw += (0x00911181,)  # reserved TMA function 9 in 0.58.1
         for raw in reserved_raw:
             self.assertIsNone(decode32_meta(raw), f"reserved raw 0x{raw:08x}")
 

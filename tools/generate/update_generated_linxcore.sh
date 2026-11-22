@@ -230,7 +230,9 @@ fi
 TMP_PYC="$(mktemp -t linxcore_top.XXXXXX.pyc)"
 
 PYC_PYTHON_DIR="${PYC_ROOT}/python"
-if [[ ! -d "${PYC_PYTHON_DIR}/pycircuit" && -d "${PYC_ROOT}/compiler/frontend/pycircuit" ]]; then
+if [[ -d "${PYC_ROOT}/python/pycircuit/src/pycircuit" ]]; then
+  PYC_PYTHON_DIR="${PYC_ROOT}/python/pycircuit/src"
+elif [[ ! -d "${PYC_PYTHON_DIR}/pycircuit" && -d "${PYC_ROOT}/compiler/frontend/pycircuit" ]]; then
   PYC_PYTHON_DIR="${PYC_ROOT}/compiler/frontend"
 fi
 
